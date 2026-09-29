@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { ChapterDef, SolidDef } from '../game/chapters/types';
+import type { ChapterDef, PillarDef, SolidDef } from '../game/chapters/types';
 import type { Player } from '../game/player';
 import type { Look, Role, WorldId } from '../game/types';
 import { buoyTop, litFlag, type WorldState } from '../game/world';
@@ -145,6 +145,7 @@ interface NpcView {
 }
 
 interface MagpieView {
+  zzz?: THREE.Mesh;
   id: string;
   world: WorldId;
   mesh: THREE.Mesh;
@@ -188,6 +189,10 @@ export class Stage {
   private arcViews: { id: string; kind: string; meshes: THREE.Mesh[]; glow: THREE.Mesh[]; amt: number; birds?: THREE.Mesh[] }[] = [];
   private diaryViews: { id: string; mesh: THREE.Mesh; glow: THREE.Mesh }[] = [];
   private keepHints: { id: string; world: WorldId; x: number; y: number }[] = [];
+  private condProps: { mesh: THREE.Mesh; when: (st: WorldState) => boolean }[] = [];
+  private pillarViews: { def: PillarDef; mesh: THREE.Mesh; cap: THREE.Mesh; bottom: number; h: number; amt: number }[] = [];
+  private hookHints: { glow: THREE.Mesh; flag: string }[] = [];
+  private sleepyTex = spr.makeZzz();
   private clouds: THREE.Mesh[] = [];
   private skies: [THREE.Group, THREE.Group] = [new THREE.Group(), new THREE.Group()];
   private moonMesh: THREE.Mesh | null = null;
@@ -228,6 +233,7 @@ export class Stage {
     this.buildSockets(ch);
     this.buildUses(ch);
     this.buildArcs(ch);
+    this.buildPillars(ch);
     this.buildHidden(ch);
     this.buildNpcs(ch);
     this.buildMagpies(ch, st);
@@ -259,6 +265,9 @@ export class Stage {
     this.darkPlanes = [];
     this.arcViews = [];
     this.diaryViews = [];
+    this.condProps = [];
+    this.pillarViews = [];
+    this.hookHints = [];
     this.clouds = [];
     this.moonMesh = null;
   }
@@ -409,6 +418,7 @@ export class Stage {
       if (p.flip) m.scale.x = -1;
       if (p.scale) m.scale.multiplyScalar(p.scale);
       this.level[p.world].add(m);
+      if (p.when) this.condProps.push({ mesh: m, when: p.when });
       if (p.kind === 'grandmaHouse' || p.kind === 'ariHouse' || p.kind === 'villageHouse') {
         // 창문 불빛
         const glow = this.glowSprite(p.world === 0 ? 0xffe2b0 : 0xfff0a8, 3.2, p.world === 0 ? 0.35 : 0.5);
@@ -446,7 +456,7 @@ export class Stage {
   }
 
   private buildBridges(ch: ChapterDef) {
-    const star = art.makeStarTile();
+    const star = starPathTexture();
     const pad = art.makeLilyPad(false);
     const lotus = art.makeLilyPad(true);
     for (const b of ch.bridges) {
@@ -457,7 +467,8 @@ export class Stage {
         const n = Math.ceil(seg.x1 - seg.x0);
         const wSeg = (seg.x1 - seg.x0) / n;
         for (let i = 0; i < n; i++) {
-          const m = new THREE.Mesh(new THREE.PlaneGeometry(wSeg, 0.5), spriteMat(star, { additive: true, fog: false }));
+          // 수면 합성은 깊이로 '물속'을 가려요. 빛길은 불투명한 도트로 깊이를 써야 물에 덮이지 않아요 (아리 쪽에서 안 보이던 버그).
+          const m = new THREE.Mesh(new THREE.PlaneGeometry(wSeg + 0.02, 0.5), spriteMat(star, { fog: false }));
           m.position.set(seg.x0 + wSeg * (i + 0.5), seg.y1 - 0.2, 0.1);
           m.visible = false;
           view.parts.push(m);
@@ -547,16 +558,50 @@ export class Stage {
         const texOld = art.makeMarble(true);
         const mesh = new THREE.Mesh(spritePlane(10, 10, 'center'), spriteMat(texNew));
         this.items.set(d.id, { mesh, glow: this.glowSprite(0xf2eaff, 1.8, 0.8), kind: d.kind, texNew, texOld });
-      } else {
-        const a = spr.makeBucket();
-        const mesh = new THREE.Mesh(spritePlane(a.w, a.h, 'center'), spriteMat(a.tex));
-        this.items.set(d.id, { mesh, glow: this.glowSprite(0x9fd4ff, 1.2, 0.3), kind: d.kind, texNew: a.tex, texOld: a.tex });
+        continue;
       }
+      const a = d.kind === 'lamp' ? spr.makeLamp(true) : d.kind === 'stake' ? spr.makeStake() : d.kind === 'coin' ? spr.makeCoin() : spr.makeBucket();
+      const mesh = new THREE.Mesh(spritePlane(a.w, a.h, 'center'), spriteMat(a.tex));
+      const glow = d.kind === 'lamp' ? this.glowSprite(0xffd9a0, 3.2, 0.7) : d.kind === 'coin' ? this.glowSprite(0xf4f6ff, 1.4, 0.6) : this.glowSprite(0x9fd4ff, 1.2, 0.3);
+      this.items.set(d.id, { mesh, glow, kind: d.kind, texNew: a.tex, texOld: a.tex });
+    }
+  }
+
+  private buildPillars(ch: ChapterDef) {
+    for (const p of ch.pillars) {
+      const tex = art.makePillarTexture(p.look === 'stump' ? 'woodMoss' : 'wood');
+      tex.repeat.set(p.w, 1);
+      const bottom = p.look === 'stump' ? -0.9 : 1.2;
+      const h = p.top - bottom;
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(p.w, 1, p.look === 'stump' ? 1.0 : 0.5), new THREE.MeshBasicMaterial({ map: tex }));
+      mesh.geometry.translate(0, 0.5, 0);
+      mesh.position.set(p.x, bottom, p.look === 'stump' ? 0 : -0.35);
+      mesh.scale.y = h;
+      const capTex = art.makePillarTexture(p.look === 'stump' ? 'woodMoss' : 'wood');
+      capTex.repeat.set(1.4, 0.2);
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(p.w + 0.14, 0.14, p.look === 'stump' ? 1.14 : 0.6), new THREE.MeshBasicMaterial({ map: capTex, color: p.look === 'stump' ? 0xd8f0c8 : 0xf2d9c4 }));
+      cap.position.set(p.x, p.top - 0.07, mesh.position.z);
+      this.level[p.world].add(mesh, cap);
+      const on = !p.when;
+      this.pillarViews.push({ def: p, mesh, cap, bottom, h, amt: on ? 1 : 0 });
     }
   }
 
   private buildSockets(ch: ChapterDef) {
     for (const s of ch.sockets) {
+      if (s.look === 'hook') {
+        const a = spr.makeHookPost();
+        const post = artMesh(a);
+        post.position.set(s.x - 0.25, s.y, -0.3);
+        this.level[s.world].add(post);
+        // 초롱을 걸 수 있다는 표시: 고리 끝에 아주 작은 반짝임
+        const hint = this.glowSprite(0xfff3c4, 0.9, 0);
+        hint.position.set(s.x + 0.45, s.y + 2.1, -0.25);
+        this.level[s.world].add(hint);
+        this.hookHints.push({ glow: hint, flag: s.flag });
+        continue;
+      }
+      if (s.look === 'fence') continue; // 박은 말뚝은 기둥(pillar)으로 보여요
       const off = art.makeSeokdeung(false);
       const on = art.makeSeokdeung(true);
       const mesh = new THREE.Mesh(spritePlane(16, 28), spriteMat(off));
@@ -732,7 +777,13 @@ export class Stage {
       const ty = arc ? 1.5 + (arc.h - 1.5) * Math.sin(Math.PI * t) + 1.2 : m.y + 3;
       const gone = st.magpies.includes(m.id);
       mesh.visible = !gone;
-      this.magpies.push({ id: m.id, world: m.world, mesh, home: new THREE.Vector3(m.x, m.y, 0.05), target: new THREE.Vector3(tx, ty, 0.05), gone, goneAt: gone ? -99 : -1 });
+      let zzz: THREE.Mesh | undefined;
+      if (m.call === 'flash') {
+        zzz = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.6), spriteMat(this.sleepyTex, { transparent: true, fog: false }));
+        zzz.renderOrder = 6;
+        this.level[m.world].add(zzz);
+      }
+      this.magpies.push({ id: m.id, world: m.world, mesh, home: new THREE.Vector3(m.x, m.y, 0.05), target: new THREE.Vector3(tx, ty, 0.05), gone, goneAt: gone ? -99 : -1, zzz });
     });
   }
 
@@ -836,6 +887,13 @@ export class Stage {
     this.updateSwaps(st, time);
     this.updateBridges(st, time);
     this.updateBuoys(f.buoySink);
+    this.updatePillars(f);
+    for (const c of this.condProps) c.mesh.visible = c.when(st);
+    for (const h of this.hookHints) {
+      const gm = h.glow.material as THREE.MeshBasicMaterial;
+      gm.opacity = st.flags[h.flag] ? 0 : 0.35 + 0.25 * Math.sin(time * 3);
+      h.glow.visible = gm.opacity > 0.01;
+    }
     this.updateItems(f);
     this.updateArcs(f);
     this.updateStones(f);
@@ -943,8 +1001,8 @@ export class Stage {
         if (b.kind === 'star') {
           const t = Math.min(1, Math.max(0, (age - i * 0.07) * 4));
           m.visible = t > 0;
-          m.scale.set(1, t, 1);
-          (m.material as THREE.MeshBasicMaterial).opacity = 0.75 + 0.25 * Math.sin(time * 3 + i);
+          m.scale.set(1, Math.max(0.001, t), 1);
+          (m.material as THREE.MeshBasicMaterial).color.setScalar(0.9 + 0.1 * Math.sin(time * 3 + i));
         } else if (b.kind === 'lily') {
           const t = Math.min(1, Math.max(0, (age - i * 0.15) * 1.5));
           m.visible = t > 0;
@@ -984,6 +1042,18 @@ export class Stage {
     }
   }
 
+  private updatePillars(f: StageFrame) {
+    for (const v of this.pillarViews) {
+      const on = !v.def.when || v.def.when(f.st);
+      v.amt += ((on ? 1 : 0) - v.amt) * Math.min(1, f.dt * 3);
+      const k = v.amt < 0.02 ? 0 : 1 - Math.pow(1 - v.amt, 3);
+      v.mesh.visible = v.cap.visible = k > 0;
+      const h = Math.max(0.001, v.h * k);
+      v.mesh.scale.y = h;
+      v.cap.position.y = v.bottom + h - 0.07;
+    }
+  }
+
   private updateItems(f: StageFrame) {
     for (const it of f.st.items) {
       const v = this.items.get(it.id);
@@ -991,11 +1061,31 @@ export class Stage {
       let world = it.world;
       let x = it.x;
       let y = it.y + 0.32;
-      if (it.mode === 'used') {
+      const sock = it.mode === 'placed' && this.ch ? this.ch.sockets.find((s) => s.id === it.at) : undefined;
+      if (it.mode === 'used' || sock?.look === 'fence') {
         v.mesh.visible = false;
         v.glow.visible = false;
         continue;
       }
+      if (sock?.look === 'hook') {
+        // 초롱걸이 고리에 매달린 초롱
+        x = sock.x + 0.45;
+        y = sock.y + 1.95 + Math.sin(f.time * 1.8) * 0.03;
+        v.mesh.visible = true;
+        const parent = this.level[sock.world];
+        if (v.mesh.parent !== parent) {
+          parent.add(v.mesh, v.glow);
+          setLayer(v.mesh, WORLD_LAYER[sock.world]);
+          setLayer(v.glow, WORLD_LAYER[sock.world]);
+        }
+        v.mesh.position.set(x, y, -0.2);
+        v.glow.position.set(x, y, -0.25);
+        v.glow.visible = true;
+        v.glow.scale.setScalar(1.5);
+        (v.glow.material as THREE.MeshBasicMaterial).opacity = 0.75 + 0.15 * Math.sin(f.time * 2.4);
+        continue;
+      }
+      v.glow.scale.setScalar(1);
       if (it.mode === 'held' && it.holder !== -1) {
         const p = f.players[it.holder as WorldId];
         world = p.role;
@@ -1024,7 +1114,7 @@ export class Stage {
       v.mesh.position.set(x, y, 0.45);
       v.glow.position.set(x, y, 0.4);
       v.glow.visible = v.mesh.visible;
-      (v.glow.material as THREE.MeshBasicMaterial).opacity = (v.kind === 'marble' ? 0.55 : 0.2) + 0.25 * Math.sin(f.time * 3);
+      (v.glow.material as THREE.MeshBasicMaterial).opacity = (v.kind === 'marble' || v.kind === 'lamp' ? 0.55 : v.kind === 'coin' ? 0.45 : 0.2) + 0.25 * Math.sin(f.time * 3);
     }
   }
 
@@ -1123,6 +1213,15 @@ export class Stage {
         this.burst(m.world, m.home.x, m.home.y + 0.5, 0xe0e8ff, 14, 1.8);
       }
       const tex = (m.mesh.material as THREE.MeshBasicMaterial).map!;
+      if (m.zzz) m.zzz.visible = !m.gone;
+      if (!m.gone && m.zzz) {
+        // 잠든 까치: 꼼짝 않고, 머리 위로 z z
+        m.mesh.visible = true;
+        m.mesh.position.set(m.home.x, m.home.y, 0.05);
+        tex.offset.x = 0;
+        m.zzz.position.set(m.home.x + 0.5, m.home.y + 0.9 + Math.sin(f.time * 2) * 0.08, 0.1);
+        continue;
+      }
       if (!m.gone) {
         m.mesh.visible = true;
         const hop = Math.max(0, Math.sin(f.time * 3 + m.home.x)) * 0.12;
@@ -1183,6 +1282,31 @@ export class Stage {
 }
 
 const rx0 = (cx: number) => cx + (Math.random() - 0.5) * 30;
+
+let starPathCache: THREE.Texture | null = null;
+/** 별빛 다리 한 칸: 불투명 도트 (반복해서 이어 붙여요) */
+function starPathTexture(): THREE.Texture {
+  if (starPathCache) return starPathCache;
+  const [c, ctx] = art.makeCanvas(16, 8);
+  art.rect(ctx, 0, 3, 16, 3, '#ffe28a');
+  art.rect(ctx, 0, 4, 16, 1, '#fff8d8');
+  art.rect(ctx, 0, 6, 16, 1, '#f2c46a');
+  const star = (x: number, y: number) => {
+    art.px(ctx, x, y - 1, '#fff6c0');
+    art.px(ctx, x - 1, y, '#fff6c0');
+    art.px(ctx, x, y, '#ffffff');
+    art.px(ctx, x + 1, y, '#fff6c0');
+    art.px(ctx, x, y + 1, '#fff6c0');
+  };
+  star(3, 2);
+  star(11, 2);
+  art.px(ctx, 7, 1, '#fff3b0');
+  art.px(ctx, 14, 2, '#fff3b0');
+  art.px(ctx, 6, 7, '#ffe98a');
+  art.px(ctx, 13, 7, '#ffe98a');
+  starPathCache = art.toTexture(c, true);
+  return starPathCache;
+}
 
 let padTexCache: THREE.Texture | null = null;
 /** 반딧불이 모여 만든 징검돌 (밝은 배경에서도 보이게 도트로) */

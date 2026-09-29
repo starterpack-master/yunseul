@@ -1,15 +1,24 @@
-import type { Step } from './scenes';
+import type { ShotTarget, Step } from './scenes';
 
 /** 컷신을 실제로 움직이는 쪽 (게임이 구현해요) */
 export interface DirectorHost {
   say(who: string, text: string, think: boolean): void;
   narrate(text: string): void;
+  caption(text: string): void;
   title(no: string, title: string): void;
   /** 대사·내레이션·제목 카드가 끝났는지 (눌러서 넘기거나 시간이 지나면) */
   textDone(): boolean;
-  /** 이야기 주인공을 x까지 걷게 해요. 도착하면 true */
-  walkTo(x: number, face?: 1 | -1, snap?: boolean): boolean;
-  camera(x: number | null): void;
+  /** 이야기 주인공(또는 who)을 x까지 걷게 해요. 도착하면 true */
+  walkTo(x: number, face?: 1 | -1, snap?: boolean, who?: 'ria' | 'ari'): boolean;
+  /** 카메라: 누구를(또는 어디를) 얼마나 가까이, 어느 쪽 세계에서 볼지 */
+  shot(on: ShotTarget | undefined, zoom: number | undefined, look: number | undefined, side: 1 | -1 | undefined, sec: number, mirror: boolean): void;
+  /** 대사마다 말하는 사람 쪽으로 카메라를 돌릴지 */
+  autoShot(on: boolean, frame: 'close' | 'keep'): void;
+  /** 두 사람 사이로 빛이 이어져요 (수면에서 손이 닿는 순간) */
+  touch(): void;
+  shake(amp: number, sec: number): void;
+  music(v: number): void;
+  rewind(): void;
   fade(to: number, sec: number): void;
   sfx(name: string): void;
   hum(sec: number): void;
@@ -91,11 +100,29 @@ export class Director {
       case 'narr':
         h.narrate(s.text);
         break;
+      case 'caption':
+        h.caption(s.text);
+        break;
       case 'say':
         h.say(s.who, s.text, !!s.think);
         break;
-      case 'cam':
-        h.camera(s.x);
+      case 'shot':
+        h.shot(s.on, s.zoom, s.look, s.side, this.fast ? 0 : s.s ?? 0.9, !!s.mirror);
+        break;
+      case 'auto':
+        h.autoShot(s.on, s.frame ?? 'close');
+        break;
+      case 'touch':
+        h.touch();
+        break;
+      case 'shake':
+        h.shake(s.a, this.fast ? 0.05 : s.s);
+        break;
+      case 'music':
+        h.music(s.v);
+        break;
+      case 'rewind':
+        h.rewind();
         break;
       case 'fade':
         h.fade(s.to, this.fast ? 0.05 : s.s);
@@ -141,12 +168,16 @@ export class Director {
       case 'say':
         return h.textDone();
       case 'walk':
-        if (this.fast || this.t > 9) return h.walkTo(s.x, s.face, true);
-        return h.walkTo(s.x, s.face);
+        if (this.fast || this.t > 9) return h.walkTo(s.x, s.face, true, s.who);
+        return h.walkTo(s.x, s.face, false, s.who);
       case 'wait':
         return this.fast || this.t >= s.s;
       case 'fade':
         return this.fast || this.t >= s.s;
+      case 'shot':
+        return !s.hold || this.fast || this.t >= (s.s ?? 0.9);
+      case 'rewind':
+        return this.fast || this.t >= 1.8;
       default:
         return true;
     }

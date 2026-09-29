@@ -124,6 +124,11 @@ export class Hud {
   setScene(on: boolean) {
     this.sceneMode = on;
     this.root.classList.toggle('scene', on);
+    // 장면이 시작되면 조작 안내는 치워요
+    if (on && this.toastEl.classList.contains('tip')) {
+      this.toastEl.classList.remove('show', 'tip');
+      this.toastT = 0;
+    }
   }
 
   toggleWheel(v?: boolean) {
@@ -277,8 +282,27 @@ export class Hud {
 
   toast(t: string, sec = 2.4) {
     this.toastEl.textContent = t;
+    this.toastEl.classList.remove('tip');
     this.toastEl.classList.add('show');
     this.toastT = sec;
+  }
+
+  /** 조작·규칙 안내: 대화창 대신 위쪽에 짧게 */
+  tip(t: string) {
+    this.toastEl.textContent = t;
+    this.toastEl.classList.add('show', 'tip');
+    this.toastT = Math.max(3.2, t.length * 0.11);
+  }
+
+  /** 장면 첫머리의 시간·장소 자막 */
+  caption(t: string) {
+    const el = $('caption');
+    el.textContent = t;
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+    clearTimeout((el as unknown as { _t?: number })._t);
+    (el as unknown as { _t?: number })._t = window.setTimeout(() => el.classList.remove('show'), this.fast ? 300 : 3600);
   }
 
   // ---- 핑 -----------------------------------------------------------------

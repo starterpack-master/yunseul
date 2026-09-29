@@ -25,7 +25,7 @@ if (netMode === 'local') $('netMode').textContent = '· 같은 기기 탭 테스
 // ---------------------------------------------------------------------------
 // 로비: 제목, 두 번째 여름, 이어하기
 
-const CH_NAME: Record<ChapterId, string> = { ch1: '1장 물속의 아이', ch2: '2장 감나무 아래', ch3: '3장 칠석', epilogue: '에필로그' };
+const CH_NAME: Record<ChapterId, string> = { ch1: '1장 물속의 아이', ch2: '2장 다시, 같은 밤', ch3: '3장 칠석', epilogue: '에필로그' };
 
 function refreshLobby() {
   const s = loadSave();
@@ -35,7 +35,7 @@ function refreshLobby() {
   const refl = $('titleReflect');
   refl.textContent = cleared ? '쉰 번의 여름을 기다렸어' : '다음 여름에 만나';
   refl.classList.toggle('revealed', cleared);
-  $('subtitle').textContent = cleared ? '— 다음 여름에 만나 —' : '물에 비친 두 여름';
+  $('subtitle').textContent = cleared ? '— 다음 여름에 만나 —' : '물속의 아이와 보낸 사흘 밤';
   const cont = s.soloChapter !== 'ch1';
   $('btnContinue').classList.toggle('hidden', !cont);
   $('continueLabel').textContent = cont ? `${CH_NAME[s.soloChapter]}부터` : '';

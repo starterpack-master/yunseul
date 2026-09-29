@@ -20,6 +20,7 @@ export const epilogue: ChapterDef = {
   sockets: [],
   uses: [],
   arcs: [],
+  pillars: [],
   hidden: [],
   dark: [],
   songZones: [],
@@ -40,5 +41,7 @@ export const epilogue: ChapterDef = {
   moon: 'full',
   dusk: 'sunset',
   triggers: [],
+  hints: [],
+  scenes: [],
   objective: () => '',
 };

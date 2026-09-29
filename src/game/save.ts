@@ -90,7 +90,7 @@ export const OUTFITS: Record<Role, WardrobeOption[]> = {
   1: [
     { id: 'blouse', name: '블라우스와 멜빵치마', unlocked: always, hint: '' },
     { id: 'onepiece', name: '땡땡이 원피스', unlocked: always, hint: '' },
-    { id: 'school', name: '1973년 교복', unlocked: (s) => reachedAt(s, 'ch2'), hint: '1장을 끝내면 열려요' },
+    { id: 'school', name: '옛날 교복', unlocked: (s) => reachedAt(s, 'ch2'), hint: '1장을 끝내면 열려요' },
     { id: 'pajama', name: '무명 잠옷', unlocked: (s) => reachedAt(s, 'ch3'), hint: '2장을 끝내면 열려요' },
     { id: 'hanbok', name: '여름 한복', unlocked: (s) => s.clears > 0, hint: '엔딩을 보면 열려요' },
   ],

@@ -429,6 +429,22 @@ export function makeProp(kind: PropKind, variant = 0): SpriteArt {
         ellipse(ctx, 2.5, 10, 1.6, 1.8, '#9fd4ff');
         px(ctx, 2, 13, '#ff9eb8');
       }, NIGHT_INK);
+    case 'jangseung':
+      // 마을 어귀 장승 한 쌍 (천하대장군 · 지하여장군)
+      return one(30, 46, (ctx) => {
+        const pole = (x: number, h: number, hat: string) => {
+          rect(ctx, x, 46 - h, 9, h, '#9a7a62');
+          rect(ctx, x + 6, 46 - h, 3, h, '#7d5f4c');
+          rect(ctx, x - 1, 46 - h - 3, 11, 3, hat);
+          rect(ctx, x + 1, 46 - h + 4, 2, 2, '#2a2350');
+          rect(ctx, x + 5, 46 - h + 4, 2, 2, '#2a2350');
+          rect(ctx, x + 3, 46 - h + 7, 2, 3, '#c97b5a');
+          rect(ctx, x + 1, 46 - h + 12, 6, 1, '#e06a6a');
+          for (let y = 46 - h + 16; y < 44; y += 3) rect(ctx, x + 2, y, 4, 1, '#5a4538');
+        };
+        pole(2, 40, '#4a4a6a');
+        pole(18, 36, '#6f5a8a');
+      }, NIGHT_INK);
     case 'boat':
       return one(44, 12, (ctx) => {
         for (let y = 0; y < 8; y++) {
@@ -520,6 +536,54 @@ export function makeBucket(): SpriteArt {
     px(ctx, 2, 2, '#7f6252');
     px(ctx, 9, 2, '#7f6252');
   }, NIGHT_INK);
+}
+
+/** 들고 다니는 초롱 (할머니 댁 부두에 걸려 있던 것) */
+export function makeLamp(lit = true): SpriteArt {
+  return one(10, 14, (ctx) => {
+    rect(ctx, 4, 0, 2, 2, '#8d6457');
+    rect(ctx, 2, 2, 6, 1, '#8d6457');
+    rect(ctx, 1, 3, 8, 8, lit ? '#ffcf8a' : '#e6d6c4');
+    rect(ctx, 2, 4, 6, 6, lit ? '#fff3c4' : '#f4ece4');
+    if (lit) rect(ctx, 4, 5, 2, 3, '#ffffff');
+    for (let y = 4; y < 11; y += 3) rect(ctx, 1, y, 8, 1, lit ? '#f2a86a' : '#c9b6a6');
+    rect(ctx, 2, 11, 6, 1, '#8d6457');
+    rect(ctx, 4, 12, 2, 2, '#ff9eb8');
+  });
+}
+
+/** 초롱걸이: 부두의 나무 기둥과 고리 */
+export function makeHookPost(): SpriteArt {
+  return one(14, 42, (ctx) => {
+    rect(ctx, 2, 4, 3, 38, '#b98a74');
+    rect(ctx, 4, 4, 1, 38, '#8d6457');
+    rect(ctx, 2, 3, 11, 2, '#8d6457');
+    rect(ctx, 11, 5, 1, 3, '#6f788c');
+    px(ctx, 10, 8, '#6f788c');
+    px(ctx, 12, 8, '#6f788c');
+    rect(ctx, 1, 39, 5, 3, '#8d6457');
+  });
+}
+
+/** 울타리 말뚝 (아리가 들고 다니는 것) */
+export function makeStake(): SpriteArt {
+  return one(6, 16, (ctx) => {
+    rect(ctx, 1, 0, 4, 13, '#b98a74');
+    rect(ctx, 4, 0, 1, 13, '#8d6457');
+    rect(ctx, 2, 13, 2, 2, '#b98a74');
+    px(ctx, 2, 15, '#8d6457');
+    rect(ctx, 1, 3, 4, 1, '#8d6457');
+  }, NIGHT_INK);
+}
+
+/** 백 원짜리 동전 (2026년) */
+export function makeCoin(): SpriteArt {
+  return one(8, 8, (ctx) => {
+    ellipse(ctx, 4, 4, 3.4, 3.4, '#d8dde6');
+    ellipse(ctx, 3.6, 3.6, 2.2, 2.2, '#f4f6fa');
+    px(ctx, 3, 3, '#ffffff');
+    rect(ctx, 3, 4, 2, 1, '#aab2c0');
+  });
 }
 
 export function makeDiaryPage(): SpriteArt {

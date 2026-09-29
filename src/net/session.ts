@@ -5,7 +5,7 @@ import { LocalTransport, P2PTransport, type Channel, type LinkState, type Transp
 export type NetMode = 'solo' | 'local' | 'p2p';
 
 export interface Hello {
-  v: 2;
+  v: 3;
   hostRole: Role;
   guestRole: Role;
   state: WorldState;
@@ -69,7 +69,7 @@ export class Session {
         case 'hello':
           if (!this.isHost) {
             const hello = data as Hello;
-            if (hello?.v !== 2) return;
+            if (hello?.v !== 3) return;
             this.myRole = hello.guestRole;
             this.ready = true;
             h.onHello(hello);

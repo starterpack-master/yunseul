@@ -47,7 +47,7 @@ export const EMOTES: { kind: EmoteKind; label: string }[] = [
 ];
 
 export const ROLE_NAME: Record<Role, string> = { 0: '리아', 1: '아리' };
-export const WORLD_NAME: Record<WorldId, string> = { 0: '지금의 호수', 1: '1973년 달못 마을' };
+export const WORLD_NAME: Record<WorldId, string> = { 0: '호숫가', 1: '물속 마을' };
 
 export type ChapterId = 'ch1' | 'ch2' | 'ch3' | 'epilogue';
 export const CHAPTER_ORDER: ChapterId[] = ['ch1', 'ch2', 'ch3', 'epilogue'];

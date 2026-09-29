@@ -21,6 +21,10 @@ export interface RenderParams {
   /** 1 = 물 위 시점, -1 = 물 아래 시점(상하 반전), 그 사이는 뒤집기 전환 */
   sAmt: number;
   camX: number;
+  /** 컷신 카메라: 가까이(1 = 기본), 시선 높이(세계 단위), 흔들림 */
+  zoom?: number;
+  camY?: number;
+  shake?: { x: number; y: number };
   time: number;
   ripples: Ripple[];
   partner: { x: number; y: number; world: WorldId; visible: boolean };
@@ -176,16 +180,37 @@ export class Renderer {
     this.compMat.uniforms.res.value.set(this.iw, this.ih);
   }
 
-  clampCamX(x: number, bounds: { minX: number; maxX: number }): number {
-    const lo = bounds.minX - 1 + this.halfW;
-    const hi = bounds.maxX + 1 - this.halfW;
+  clampCamX(x: number, bounds: { minX: number; maxX: number }, zoom = 1): number {
+    const half = this.halfW / Math.max(0.5, zoom);
+    const lo = bounds.minX - 1 + half;
+    const hi = bounds.maxX + 1 - half;
     if (lo > hi) return (bounds.minX + bounds.maxX) / 2;
     return Math.min(hi, Math.max(lo, x));
   }
 
+  private zoom = 1;
+  private camY = 0;
+
+  /** 이 가까이(zoom)에서 기본 시선 높이 (camY = 0일 때 화면 가운데의 높이) */
+  lookBase(zoom: number): number {
+    return (this.visH / Math.max(0.5, zoom)) * (0.5 - this.waterFrac);
+  }
+
+  /** 수면이 화면 위에서 46% 자리에 오게 하는 camY: 물 위(리아)와 물 아래(아리)를 한 화면에, 위아래 띠와 대사창도 비켜서 */
+  mirrorY(zoom: number): number {
+    const h = this.visH / Math.max(0.5, zoom);
+    return -h * 0.04 - this.lookBase(zoom);
+  }
+
+  /** 화면에 보이는 높이(세계 단위) */
+  viewHeight(zoom: number): number {
+    return this.visH / Math.max(0.5, zoom);
+  }
+
   private placeCamera(role: WorldId, camX: number) {
-    const D = this.visH / 2 / Math.tan(THREE.MathUtils.degToRad(FOV / 2));
-    const lookY = this.visH * (0.5 - this.waterFrac);
+    const z = Math.max(0.5, this.zoom);
+    const D = this.visH / 2 / Math.tan(THREE.MathUtils.degToRad(FOV / 2)) / z;
+    const lookY = (this.visH / z) * (0.5 - this.waterFrac) + this.camY;
     const sgn = role === 0 ? 1 : -1;
     this.camera.position.set(camX, sgn * (lookY + D * Math.sin(PITCH)), D * Math.cos(PITCH));
     this.camera.up.set(0, 1, 0);
@@ -204,12 +229,15 @@ export class Renderer {
     const oth: WorldId = role === 0 ? 1 : 0;
     this.camRole = role;
     this.curSAmt = p.sAmt;
+    this.zoom = p.zoom ?? 1;
+    this.camY = (p.camY ?? 0) + (p.shake?.y ?? 0);
+    const camX = p.camX + (p.shake?.x ?? 0);
 
     // 화면상의 수면 위치는 항상 물 위 시점과 같게 맞춰요.
-    this.placeCamera(0, p.camX);
-    this.scrW = this.projectTex(p.camX, 0, 0).y;
-    this.placeCamera(role, p.camX);
-    this.texW = this.projectTex(p.camX, 0, 0).y;
+    this.placeCamera(0, camX);
+    this.scrW = this.projectTex(camX, 0, 0).y;
+    this.placeCamera(role, camX);
+    this.texW = this.projectTex(camX, 0, 0).y;
 
     const gl = this.gl;
     // 1) 내 세계

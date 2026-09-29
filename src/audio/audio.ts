@@ -32,7 +32,9 @@ export type Sfx =
   | 'keep'
   | 'fish'
   | 'grow'
-  | 'type';
+  | 'type'
+  | 'rewind'
+  | 'dawn';
 
 const BPM = 76;
 const EIGHTH = 60 / BPM / 2;
@@ -135,6 +137,12 @@ export class AudioEngine {
   setMuted(m: boolean) {
     this.muted = m;
     if (this.ctx) this.master.gain.setTargetAtTime(m ? 0 : 0.8, this.ctx.currentTime, 0.1);
+  }
+
+  /** 극적인 순간엔 음악을 줄여요 (0 = 조용히, 1 = 평소) */
+  setMusic(v: number) {
+    if (!this.ctx) return;
+    this.music.gain.setTargetAtTime(0.5 * Math.max(0, Math.min(1, v)), this.ctx.currentTime, v < 0.5 ? 0.35 : 0.8);
   }
   get isMuted() {
     return this.muted;
@@ -618,6 +626,15 @@ export class AudioEngine {
       case 'grow':
         this.tone('sine', 220, 660, 0.9, 0.05 * vol);
         this.chime([72, 79, 84, 88], 0.12, 0.45 * vol);
+        break;
+      case 'rewind':
+        // 되감기: 거꾸로 빨려 들어가는 소리 + 낮은 종
+        this.noise(1.6, 0.12 * vol, 300, 5200, 0.6);
+        this.tone('sine', 880, 110, 1.6, 0.07 * vol);
+        this.chime([96, 91, 88, 84, 79, 76, 72, 67], 0.1, 0.5 * vol, true);
+        break;
+      case 'dawn':
+        this.chime([65, 72, 77, 81, 84, 89], 0.22, 0.4 * vol, true);
         break;
     }
   }

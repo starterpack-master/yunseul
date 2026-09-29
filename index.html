@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>다음 여름에 만나</title>
-    <meta name="description" content="물에 비친 두 여름. 호수를 사이에 둔 두 소녀의 2인 협동 힐링 퍼즐 어드벤처" />
+    <meta name="description" content="물속의 아이와 보낸 사흘 밤. 호수를 사이에 둔 두 소녀의 2인 협동 퍼즐 어드벤처" />
     <meta name="theme-color" content="#ffd9e3" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -57,6 +57,7 @@
       </div>
       <div id="narration" class="hidden"><p id="narrText"></p><span class="next">▼</span></div>
       <div id="titleCard" class="hidden"><div class="no"></div><div class="tt"></div></div>
+      <div id="caption"></div>
 
       <div id="emoteWheel" class="hidden"></div>
 
@@ -114,11 +115,11 @@
       <div class="title-wrap" id="titleWrap">
         <div class="title" id="titleMain">다음 여름에 만나</div>
         <div class="title reflect" id="titleReflect" aria-hidden="true">다음 여름에 만나</div>
-        <div class="subtitle" id="subtitle">물에 비친 두 여름</div>
+        <div class="subtitle" id="subtitle">물속의 아이와 보낸 사흘 밤</div>
       </div>
 
       <div class="panel" id="panelMain">
-        <div id="ngBadge" class="invited hidden">🌙 <b>두 번째 여름</b> · 할머니의 마음이 조금 더 보여요</div>
+        <div id="ngBadge" class="invited hidden">🌙 <b>두 번째 여름</b> · 아리와 할머니의 속마음이 보여요</div>
         <div id="invited" class="invited hidden">초대받은 방 <b id="invitedCode"></b></div>
         <button id="btnJoinInvited" class="big-btn pink hidden">초대받은 방으로 들어가기</button>
         <button id="btnResume" class="big-btn pink hidden">지난 방 이어서 하기</button>
@@ -140,13 +141,13 @@
       <div class="panel hidden" id="panelRole">
         <div class="ask">누가 될까요?</div>
         <div class="role-row">
-          <button class="role" data-role="0"><canvas class="portrait" data-role="0"></canvas><b>리아</b><small>지금 · 할머니 댁 호숫가</small></button>
-          <button class="role" data-role="1"><canvas class="portrait" data-role="1"></canvas><b>아리</b><small>1973년 · 달못 마을</small></button>
+          <button class="role" data-role="0"><canvas class="portrait" data-role="0"></canvas><b>리아</b><small>할머니 댁 호숫가</small></button>
+          <button class="role" data-role="1"><canvas class="portrait" data-role="1"></canvas><b>아리</b><small>물속 마을 · 달못</small></button>
         </div>
         <button id="btnBack" class="text-btn">뒤로</button>
       </div>
 
-      <div class="foot">2인 협동 힐링 퍼즐 · v0.2 <span id="netMode"></span></div>
+      <div class="foot">2인 협동 퍼즐 어드벤처 · v0.3 <span id="netMode"></span></div>
     </div>
 
     <div id="wardrobe" class="modal hidden">

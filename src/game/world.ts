@@ -13,13 +13,17 @@ export interface ItemState {
   vx: number;
   vy: number;
   holder: Role | -1;
+  /** 꽂혀 있는 자리 (socket id) */
+  at?: string;
+  /** 물에 떠 있은 시간 */
+  ft?: number;
 }
 
 export type Phase = 'play' | 'outro' | 'done';
 
 /** 호스트가 계산해서 상대에게 보내는 공유 상태 */
 export interface WorldState {
-  v: 2;
+  v: 3;
   round: number;
   chapter: ChapterId;
   phase: Phase;
@@ -72,7 +76,7 @@ export function createWorldState(opts: { chapter?: ChapterId; round?: number; ng
   const buoys: Record<string, number> = {};
   for (const b of ch.buoys) buoys[b.id] = 0;
   return {
-    v: 2,
+    v: 3,
     round: opts.round ?? 1,
     chapter: ch.id,
     phase: 'play',
@@ -165,9 +169,15 @@ export function arcsFor(ch: ChapterDef, st: WorldState): ArcShape[] {
 }
 
 /** 현재 상태 기준으로 한 세계의 충돌체 목록. buoySink는 화면에 보이는(보간된) 값이에요. */
+/** 지금 밟을 수 있는 기둥(그루터기) */
+export function activePillars(ch: ChapterDef, world: WorldId, st: WorldState) {
+  return ch.pillars.filter((p) => p.world === world && p.solid && (!p.when || p.when(st)));
+}
+
 export function collidersFor(ch: ChapterDef, world: WorldId, st: WorldState, buoySink: Record<string, number>): Collider[] {
   const out: Collider[] = [];
   ch.solids[world].forEach((s, i) => out.push({ x0: s.x0, x1: s.x1, y0: s.y0, y1: s.y1, oneWay: false, kind: 'solid', id: `s${i}` }));
+  for (const p of activePillars(ch, world, st)) out.push({ x0: p.x - p.w / 2, x1: p.x + p.w / 2, y0: -0.8, y1: p.top, oneWay: false, kind: 'solid', id: `p:${p.id}` });
   for (const b of ch.bridges) {
     if (b.world !== world || !b.when(st)) continue;
     b.segs.forEach((seg, i) => out.push({ ...seg, oneWay: true, kind: 'bridge', id: `${b.id}:${i}` }));
@@ -183,9 +193,56 @@ export function collidersFor(ch: ChapterDef, world: WorldId, st: WorldState, buo
   return out;
 }
 
-export function solidAt(ch: ChapterDef, world: WorldId, x: number, y: number) {
+export function solidAt(ch: ChapterDef, world: WorldId, x: number, y: number, st?: WorldState): { x0: number; x1: number; y0: number; y1: number } | null {
   for (const s of ch.solids[world]) if (x >= s.x0 && x <= s.x1 && y >= s.y0 && y <= s.y1) return s;
+  if (st) {
+    for (const p of activePillars(ch, world, st)) {
+      const x0 = p.x - p.w / 2;
+      const x1 = p.x + p.w / 2;
+      if (x >= x0 && x <= x1 && y >= -0.8 && y <= p.top) return { x0, x1, y0: -0.8, y1: p.top };
+    }
+  }
   return null;
+}
+
+/** 물에 빠졌을 때 돌아갈 자리: x에서 가장 가까운, 지금 밟을 수 있는 땅 위 */
+export function nearestSafe(ch: ChapterDef, world: WorldId, st: WorldState, x: number, preferY?: number): { x: number; y: number } {
+  const cands: { x0: number; x1: number; y1: number }[] = [...ch.solids[world], ...activePillars(ch, world, st).map((p) => ({ x0: p.x - p.w / 2, x1: p.x + p.w / 2, y1: p.top }))];
+  let best: { x: number; y: number } | null = null;
+  let bestD = Infinity;
+  for (const s of cands) {
+    if (s.x1 - s.x0 < 0.5) continue;
+    const cx = Math.min(s.x1 - 0.3, Math.max(s.x0 + 0.3, x));
+    // 높이가 비슷한 곳을 조금 더 좋아해요 (언덕 위에서 빠지면 언덕으로)
+    const d = Math.abs(cx - x) + (preferY !== undefined ? Math.abs(s.y1 - preferY) * 0.3 : 0);
+    if (d < bestD) {
+      bestD = d;
+      best = { x: cx, y: s.y1 };
+    }
+  }
+  return best ?? { x: ch.start[world].x, y: ch.start[world].y };
+}
+
+/** 물에 뜬 물건이 떠밀려 갈 자리: 같은 물길의 양 끝 중 걸어서 닿는 낮은 물가 */
+function shoreTarget(ch: ChapterDef, world: WorldId, x: number, st: WorldState): number | null {
+  const solids = [...ch.solids[world], ...activePillars(ch, world, st).map((p) => ({ x0: p.x - p.w / 2, x1: p.x + p.w / 2, y1: p.top }))];
+  let left: { x1: number; y1: number } | null = null;
+  let right: { x0: number; y1: number } | null = null;
+  for (const s of solids) {
+    if (s.x1 <= x + 0.01 && (!left || s.x1 > left.x1)) left = s;
+    if (s.x0 >= x - 0.01 && (!right || s.x0 < right.x0)) right = s;
+  }
+  const low = (y: number) => y <= 1.6;
+  const lt = left && low(left.y1) ? left.x1 + 0.35 : null;
+  const rt = right && low(right.y1) ? right.x0 - 0.35 : null;
+  if (lt !== null && rt !== null) return Math.abs(lt - x) <= Math.abs(rt - x) ? lt : rt;
+  return lt ?? rt;
+}
+
+/** 이 자리에 발 딛을 땅이 아직 있는지 (사라지는 발판 위에서는 되살아나지 않게) */
+export function supported(ch: ChapterDef, world: WorldId, st: WorldState, x: number, y: number): boolean {
+  const s = solidAt(ch, world, x, y - 0.05, st);
+  return !!s && Math.abs(s.y1 - y) < 0.12;
 }
 
 // ---------------------------------------------------------------------------
@@ -224,6 +281,23 @@ export function stepWorld(st: WorldState, dt: number, players: SimPlayer[], solo
     st.buoys[b.id] = next;
   }
 
+  // 물에 뜬 물건: 걸어서 닿는 물가 쪽으로 천천히 떠밀려 가요. 오래 아무도 못 주우면 처음 자리로 돌아가요.
+  for (const it of st.items) {
+    if (it.mode !== 'floating') {
+      if (it.ft) it.ft = 0;
+      continue;
+    }
+    it.ft = (it.ft ?? 0) + dt;
+    const def = ch.items.find((d) => d.id === it.id);
+    if (it.ft > 14 && def) {
+      Object.assign(it, { world: def.world, x: def.x, y: def.y, vx: 0, vy: 0, mode: 'ground', ft: 0 });
+      events.push({ e: 'respawn', id: it.id });
+      continue;
+    }
+    const target = shoreTarget(ch, it.world, it.x, st);
+    if (target !== null && Math.abs(target - it.x) > 0.02) it.x += Math.sign(target - it.x) * Math.min(Math.abs(target - it.x), dt * 1.2);
+  }
+
   // 떨어지는 물건
   for (const it of st.items) {
     if (it.mode !== 'falling') continue;
@@ -244,7 +318,8 @@ export function stepWorld(st: WorldState, dt: number, players: SimPlayer[], solo
         it.y = Math.min(it.y, top);
       }
     }
-    for (const s of ch.solids[it.world]) {
+    const landOn = [...ch.solids[it.world], ...activePillars(ch, it.world, st).map((p) => ({ x0: p.x - p.w / 2, x1: p.x + p.w / 2, y1: p.top }))];
+    for (const s of landOn) {
       if (it.x >= s.x0 && it.x <= s.x1 && it.y <= s.y1 && prevY >= s.y1 - 0.08) {
         it.y = s.y1;
         it.mode = 'ground';
@@ -273,7 +348,7 @@ export function stepWorld(st: WorldState, dt: number, players: SimPlayer[], solo
       for (const b of ch.buoys) {
         if (Math.abs(it.x - b.x) < b.w / 2 + 0.2) it.x = b.x + (it.x >= b.x ? 1 : -1) * (b.w / 2 + 0.3);
       }
-      const s = solidAt(ch, to, it.x, 0.1);
+      const s = solidAt(ch, to, it.x, 0.1, st);
       if (s) {
         it.y = s.y1;
         it.mode = 'ground';
@@ -301,12 +376,41 @@ export function stepWorld(st: WorldState, dt: number, players: SimPlayer[], solo
       if (m.call === 'song' && m.world === 1 && !st.magpies.includes(m.id) && Math.abs(ari!.x - m.x) < 2.4 && Math.abs(ari!.y - m.y) < 3) st.magpies.push(m.id);
     }
   }
+  // 잠든 까치: 리아의 사진 플래시가 물 너머까지 닿으면 깨요.
+  if (st.flash > 0) {
+    const ria = pl(0);
+    if (ria?.present && ria.state && !ria.state.hidden) {
+      for (const m of ch.magpies) {
+        if (m.call === 'flash' && !st.magpies.includes(m.id) && Math.abs(ria.state.x - m.x) < 4.5) st.magpies.push(m.id);
+      }
+    }
+  }
   if (st.flash > 0) st.flash = Math.max(0, st.flash - dt);
+
+  // 두 사람이 함께 보는 장면 (조건이 맞으면 한 번)
+  if (st.phase === 'play') {
+    const ctx = { st, p: [pl(0)?.present ? pl(0)!.state : null, pl(1)?.present ? pl(1)!.state : null] as [PlayerNetState | null, PlayerNetState | null] };
+    for (const sc of ch.scenes) {
+      const key = `scene:${sc.id}`;
+      if (!st.flags[key] && sc.when(ctx)) st.flags[key] = true;
+    }
+  }
 
   // 목표: 두 사람이 다리 꼭대기에 함께 서면 (다리가 없는 장은 조건만)
   if (st.phase === 'play' && ch.goal && ch.goal.when(st)) {
     const arc = ch.goal.arc ? ch.arcs.find((a) => a.id === ch.goal!.arc) : undefined;
-    if (!ch.goal.arc) {
+    const zone = ch.goal.zone;
+    const inZone = (r: Role) => {
+      const s = pl(r)?.state;
+      return !!zone && !!pl(r)?.present && !!s && !s.hidden && s.x >= zone.x0 && s.x <= zone.x1 && s.g !== 'none';
+    };
+    if (zone) {
+      if (inZone(0) && inZone(1)) {
+        st.phase = 'outro';
+        st.ready = [false, false];
+        events.push({ e: 'goal' });
+      }
+    } else if (!ch.goal.arc) {
       st.phase = 'outro';
       st.ready = [false, false];
       events.push({ e: 'goal' });
@@ -343,8 +447,15 @@ export function applyAction(st: WorldState, a: Action): boolean {
     }
     case 'pickup': {
       const it = st.items.find((i) => i.id === a.id);
-      if (!it || it.mode === 'held' || it.mode === 'placed' || it.mode === 'used') return false;
+      if (!it || it.mode === 'held' || it.mode === 'used') return false;
       if (st.items.some((i) => i.holder === a.r && i.mode === 'held')) return false;
+      if (it.mode === 'placed') {
+        // 뗄 수 있는 자리(초롱걸이)에서만 다시 들 수 있어요.
+        const s = ch.sockets.find((x) => x.id === it.at);
+        if (!s || !s.removable || s.world !== a.r) return false;
+        st.flags[s.flag] = false;
+        it.at = undefined;
+      }
       it.mode = 'held';
       it.holder = a.r;
       it.world = a.r;
@@ -374,6 +485,7 @@ export function applyAction(st: WorldState, a: Action): boolean {
       it.world = s.world;
       it.x = s.x;
       it.y = s.y;
+      it.at = s.id;
       st.flags[s.flag] = true;
       return true;
     }
@@ -405,6 +517,13 @@ export function applyAction(st: WorldState, a: Action): boolean {
     case 'magpie': {
       const m = ch.magpies.find((x) => x.id === a.id);
       if (!m || m.world !== a.r || st.magpies.includes(m.id)) return false;
+      if (m.call !== 'use' && m.call !== 'give') return false;
+      if (m.call === 'give') {
+        const it = st.items.find((i) => i.holder === a.r && i.mode === 'held' && ch.items.find((d) => d.id === i.id)?.kind === m.needs);
+        if (!it) return false;
+        it.mode = 'used';
+        it.holder = -1;
+      }
       st.magpies.push(m.id);
       return true;
     }

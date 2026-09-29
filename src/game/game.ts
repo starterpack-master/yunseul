@@ -10,7 +10,7 @@ import { Director, type DirectorHost } from './director';
 import { Input } from './input';
 import { Player } from './player';
 import { isLook, loadSave, reachChapter, sanitizeLook, writeSave } from './save';
-import { epilogueScript, eventLines, introScript, outroScript } from './scenes';
+import { epilogueScript, eventLines, introScript, outroScript, type ShotTarget } from './scenes';
 import { EMOTES, ROLE_NAME, other, type ChapterId, type EmoteKind, type Look, type PlayerNetState, type Role, type WorldId } from './types';
 import {
   applyAction,
@@ -19,8 +19,10 @@ import {
   collidersFor,
   createWorldState,
   litFlag,
+  nearestSafe,
   solidAt,
   stepWorld,
+  supported,
   buoyTop,
   type Action,
   type Collider,
@@ -40,7 +42,39 @@ type Interactable = {
   song?: boolean;
 };
 
-type SceneKind = 'intro' | 'outro' | 'epilogue';
+type SceneKind = 'intro' | 'outro' | 'epilogue' | 'event';
+
+/** 부드럽게 옮겨 가는 카메라 값 */
+class Tween {
+  v: number;
+  private from: number;
+  private to: number;
+  private t = 1;
+  private dur = 0;
+  constructor(v: number) {
+    this.v = this.from = this.to = v;
+  }
+  set(to: number, sec: number) {
+    if (sec <= 0.001) {
+      this.v = this.from = this.to = to;
+      this.t = 1;
+      return;
+    }
+    this.from = this.v;
+    this.to = to;
+    this.t = 0;
+    this.dur = sec;
+  }
+  update(dt: number) {
+    if (this.t >= 1) return;
+    this.t = Math.min(1, this.t + dt / this.dur);
+    const e = this.t * this.t * (3 - 2 * this.t);
+    this.v = this.from + (this.to - this.from) * e;
+  }
+  get target() {
+    return this.to;
+  }
+}
 
 export interface StartOpts {
   ng?: boolean;
@@ -67,7 +101,7 @@ export class Game {
   private camX = 0;
   private camOverride: number | null = null;
   private sAmt = 1;
-  private flip: { from: number; to: number; t: number } | null = null;
+  private flip: { from: number; to: number; t: number; dur?: number } | null = null;
   private ripples: Ripple[] = [];
   private sendT = 0;
   private worldSendT = 0;
@@ -108,6 +142,19 @@ export class Game {
   private linkState: LinkState = 'starting';
   private linkDetail = '';
   private endingShown = false;
+  // 컷신 카메라
+  private camZoom = new Tween(1);
+  private camY = new Tween(0);
+  private camFollow: ShotTarget | null = null;
+  private camFollowRate = 3;
+  private shakeT = 0;
+  private shakeAmp = 0;
+  private autoShotOn = false;
+  // 장 중간 장면 · 막혔을 때 힌트
+  private playedScenes = new Set<string>();
+  private sceneId: string | null = null;
+  private lastProgressT = 0;
+  private hintFired = new Set<string>();
   onExit: (() => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -256,6 +303,10 @@ export class Game {
       p.singing = false;
     }
     this.fired.clear();
+    this.hintFired.clear();
+    this.playedScenes = new Set(this.ch.scenes.filter((sc) => this.sceneSeen(sc.id)).map((sc) => sc.id));
+    this.sceneId = null;
+    this.lastProgressT = this.time;
     this.queue = [];
     this.hud.clearText();
     this.hud.clearMarks();
@@ -267,6 +318,8 @@ export class Game {
     this.hideChar = [false, false];
     this.grandma = {};
     this.camOverride = null;
+    this.resetCamera();
+    this.audio.setMusic(1);
     this.gotPin = this.st.chapter !== 'ch1';
     this.applyLooks();
     reachChapter(this.st.chapter);
@@ -306,6 +359,48 @@ export class Game {
     }
   }
 
+  private sceneKey(id: string) {
+    return `nsm:scene:${this.session?.room ?? 'solo'}:${this.st.round}:${this.st.chapter}:${id}:${this.myRole}`;
+  }
+
+  /** 같은 방에서 새로고침했을 때 이미 본 장면은 다시 틀지 않아요 */
+  private sceneSeen(id: string): boolean {
+    if (this.solo) return false;
+    try {
+      return sessionStorage.getItem(this.sceneKey(id)) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  private markSceneSeen(id: string) {
+    if (this.solo) return;
+    try {
+      sessionStorage.setItem(this.sceneKey(id), '1');
+    } catch {
+      /* noop */
+    }
+  }
+
+  /** 컷신이 끝나면 카메라를 평소대로 */
+  private resetCamera() {
+    this.camZoom.set(1, 0);
+    this.camY.set(0, 0);
+    this.camFollow = null;
+    this.camFollowRate = 3;
+    this.shakeT = 0;
+    this.autoShotOn = false;
+    this.autoFrame = 'close';
+  }
+
+  /** 장면이 끝난 뒤 내 시점(물 위/아래)으로 되돌려요 */
+  private restoreSide() {
+    const want = this.viewRole === 0 ? 1 : -1;
+    if (Math.sign(this.sAmt) !== want || this.flip) {
+      this.flip = { from: this.sAmt, to: want, t: 0, dur: 0.5 };
+    }
+  }
+
   /** 이야기를 이미 봤으면 물가에서 바로 시작 */
   private skipIntroPlacement() {
     for (const p of this.players) {
@@ -319,24 +414,42 @@ export class Game {
   // -------------------------------------------------------------------------
   // 컷신
 
-  private startScene(kind: SceneKind) {
-    if (this.scene === kind && this.director.running) return;
+  private startScene(kind: SceneKind, id?: string) {
+    if (this.scene === kind && this.director.running && (kind !== 'event' || this.sceneId === id)) return;
     const ng = this.st.ng;
     this.scene = kind;
+    this.sceneId = id ?? null;
     this.hud.setScene(true);
     this.hud.toggleWheel(false);
     this.queue = [];
     this.hud.clearText();
+    this.resetCamera();
     for (const p of this.players) p.singing = false;
     const done = () => {
       this.scene = null;
+      this.sceneId = null;
       this.hud.setScene(false);
       this.camOverride = null;
       this.hud.clearText();
+      const keepWhite = kind === 'outro' && this.fadeTarget > 0.9;
+      this.camZoom.set(1, keepWhite ? 0 : 0.8);
+      this.camY.set(0, keepWhite ? 0 : 0.8);
+      this.camFollow = null;
+      this.autoShotOn = false;
+      if (kind !== 'outro' && kind !== 'epilogue') this.restoreSide();
+      this.audio.setMusic(1);
+      this.lastProgressT = this.time;
       if (kind === 'intro') this.markIntroSeen();
+      if (kind === 'event' && id) this.markSceneSeen(id);
       if (kind === 'outro') this.act({ k: 'ready', r: this.myRole, chapter: this.st.chapter });
       if (kind === 'epilogue') this.showEndingCard();
     };
+    if (kind === 'event') {
+      const def = this.ch.scenes.find((s) => s.id === id);
+      this.actor = this.controlled;
+      this.director.run(def ? def.steps(ng) : [], done);
+      return;
+    }
     if (kind === 'intro') {
       const roles: Role[] = this.solo ? [0, 1] : [this.myRole];
       const run = (i: number) => {
@@ -368,14 +481,111 @@ export class Game {
     });
   }
 
+  private autoFrame: 'close' | 'keep' = 'close';
+  private glowPulse = 0;
+
+  /** 카메라 구도 정하기. look = 화면 가운데에 둘 높이, mirror = 수면을 사이에 두고 두 사람을 한 화면에 */
+  private setShot(on: ShotTarget | undefined, zoom: number | undefined, look: number | undefined, side: 1 | -1 | undefined, sec: number, mirror: boolean) {
+    if (on !== undefined) {
+      this.camFollow = on;
+      this.camFollowRate = sec <= 0.01 ? 1000 : Math.max(1.2, 3.2 / Math.max(0.3, sec));
+      if (sec <= 0.01) this.camX = this.renderer.clampCamX(this.shotX(on), this.ch, zoom ?? this.camZoom.v);
+    }
+    // 두 사람을 한 화면에 담을 땐 너무 가까이 가지 않아요 (머리가 잘리지 않게)
+    if (mirror && zoom !== undefined) zoom = Math.min(zoom, 1.55);
+    const z = zoom ?? this.camZoom.target;
+    if (zoom !== undefined) this.camZoom.set(zoom, sec);
+    // look은 대상의 발 높이에서 얼마나 위를 화면 가운데에 둘지예요.
+    if (mirror) this.camY.set(this.renderer.mirrorY(z), sec);
+    else if (look !== undefined) this.camY.set(this.shotFeet(on ?? this.camFollow) + look - this.renderer.lookBase(z), sec);
+    if (side !== undefined) this.turnTo(side, sec <= 0.01 ? 0 : Math.min(0.6, sec));
+  }
+
+  private shotFeet(on: ShotTarget | null | undefined): number {
+    if (on === 'ria') return this.players[0].body.y;
+    if (on === 'ari') return this.players[1].body.y;
+    if (on === 'both') return Math.min(this.players[0].body.y, this.players[1].body.y);
+    if (on === 'grandma') return 1.5;
+    return 1.5;
+  }
+
+  /** 대사마다 말하는 사람 쪽으로: 리아는 물 위에서, 아리는 물 아래에서 (주고받는 장면) */
+  private focusSpeaker(who: string) {
+    const target: ShotTarget | null = who === '리아' ? 'ria' : who === '아리' ? 'ari' : who === '할머니' ? 'grandma' : who === '엄마' ? 'mom' : null;
+    if (!target) return;
+    const side: 1 | -1 = target === 'ari' || target === 'mom' ? -1 : 1;
+    if (this.autoFrame === 'close') {
+      this.setShot(target, Math.max(1.9, this.camZoom.target), 0.8, undefined, 0.45, false);
+    } else {
+      this.camFollow = target;
+      this.camFollowRate = 4;
+    }
+    this.turnTo(side, 0.42);
+  }
+
+  /** 카메라를 물 위(1) 또는 물 아래(-1) 시점으로 뒤집어요 */
+  private turnTo(side: 1 | -1, sec: number) {
+    if (this.flip && this.flip.to === side) return;
+    if (!this.flip && Math.sign(this.sAmt) === side && Math.abs(this.sAmt) > 0.999) return;
+    if (sec <= 0.01) {
+      this.flip = null;
+      this.sAmt = side;
+      return;
+    }
+    this.flip = { from: this.sAmt, to: side, t: 0, dur: sec };
+    this.audio.play('swap', 0.25);
+  }
+
+  private shotX(on: ShotTarget): number {
+    if (typeof on === 'number') return on;
+    if (on === 'ria') return this.players[0].body.x;
+    if (on === 'ari') return this.players[1].body.x;
+    if (on === 'both') return (this.players[0].body.x + this.players[1].body.x) / 2;
+    const npc = this.ch.npcs.find((n) => n.kind === on);
+    if (on === 'grandma' && this.grandma.x !== undefined) return this.grandma.x;
+    return npc ? npc.x : this.camX;
+  }
+
   private directorHost(): DirectorHost {
     return {
-      say: (who, text, think) => this.hud.say({ who, text, think }, false),
+      say: (who, text, think) => {
+        if (this.autoShotOn) this.focusSpeaker(who);
+        this.hud.say({ who, text, think }, false);
+      },
       narrate: (text) => this.hud.narrate(text),
+      caption: (text) => this.hud.caption(text),
       title: (no, title) => this.hud.titleCard(no, title),
       textDone: () => this.hud.textIdle,
-      walkTo: (x, face, snap) => {
-        const p = this.players[this.actor];
+      shot: (on, zoom, look, side, sec, mirror) => this.setShot(on, zoom, look, side, sec, mirror),
+      autoShot: (on, frame) => {
+        this.autoShotOn = on;
+        this.autoFrame = frame;
+      },
+      touch: () => {
+        // 수면에서 두 손이 닿는 순간: 물결과 빛
+        const x = (this.players[0].body.x + this.players[1].body.x) / 2;
+        this.addRipple(x, 1.4);
+        this.renderer.stage.burst(0, x, 0.4, 0xfff2c8, 40, 2.2);
+        this.renderer.stage.burst(1, x, 0.4, 0xe0d8ff, 40, 2.2);
+        this.audio.play('transfer');
+        this.glowPulse = 1;
+      },
+      shake: (amp, sec) => {
+        this.shakeAmp = amp;
+        this.shakeT = sec;
+      },
+      music: (v) => this.audio.setMusic(v),
+      rewind: () => {
+        this.audio.play('rewind');
+        this.hud.flashScreen();
+        this.shakeAmp = 0.1;
+        this.shakeT = 1.2;
+        this.camZoom.set(2.6, 1.6);
+        this.fadeTarget = 1;
+        this.fadeSpeed = 1.6;
+      },
+      walkTo: (x, face, snap, who) => {
+        const p = who ? this.players[who === 'ria' ? 0 : 1] : this.players[this.actor];
         if (p.remote) return true;
         if (snap) {
           p.body.x = x;
@@ -393,7 +603,6 @@ export class Game {
         }
         return arrived;
       },
-      camera: (x) => (this.camOverride = x),
       fade: (to, sec) => {
         this.fadeTarget = to;
         this.fadeSpeed = 1 / Math.max(0.05, sec) * 2.2;
@@ -448,7 +657,7 @@ export class Game {
     this.fadeTarget = 0.25;
     this.hud.showEnding(true, {
       title: '다음 여름에 만나',
-      body: trueEnd ? '— 진짜 끝 —\n\n할머니의 일기장을 모두 읽었어요.\n쉰 번의 여름, 기다려 줘서 고마워요.' : '— 끝 —\n\n로비의 제목 물그림자를 다시 보세요.\n두 번째 여름에는 할머니의 마음이 조금 더 보여요.',
+      body: trueEnd ? '— 진짜 끝 —\n\n할머니의 일기장을 모두 읽었어요.\n쉰 번의 여름, 기다려 줘서 고마워요.' : '— 끝 —\n\n로비의 제목 물그림자를 다시 보세요.\n두 번째 여름에는 아리와 할머니의 속마음이 보여요.',
       sub: '쉰 번의 여름을 기다렸어',
     }, this.isHost);
     this.audio.play('ending');
@@ -464,7 +673,7 @@ export class Game {
     if (joined) {
       if (s.isHost) {
         const hello: Hello = {
-          v: 2,
+          v: 3,
           hostRole: s.myRole,
           guestRole: other(s.myRole),
           state: this.st,
@@ -530,7 +739,7 @@ export class Game {
   }
 
   private onWorld(s: WorldState) {
-    if (s.v !== 2) return;
+    if (s.v !== 3) return;
     this.st = s;
     this.ensureChapter(true);
   }
@@ -627,7 +836,7 @@ export class Game {
       const raw = localStorage.getItem(`nsm:host:${s.room}`);
       if (!raw) return;
       const d = JSON.parse(raw) as { t: number; st: WorldState; me: PlayerNetState; partner?: PlayerNetState | null };
-      if (Date.now() - d.t > 6 * 3600 * 1000 || d.st?.v !== 2) return;
+      if (Date.now() - d.t > 6 * 3600 * 1000 || d.st?.v !== 3) return;
       this.st = d.st;
       this.lastPartner = d.partner ?? null;
       this.pendingMe = d.me;
@@ -883,21 +1092,36 @@ export class Game {
     this.diffEffects();
     this.prev = cloneState(this.st);
     if (this.st.phase === 'outro' && this.scene !== 'outro' && !this.director.running && !this.st.ready[this.myRole] && !(this.solo && (this.st.ready[0] || this.st.ready[1]))) this.startScene('outro');
+    // 장 중간 장면: 호스트가 조건을 보고 열면 둘 다 봐요 (다른 장면이 끝난 뒤에)
+    if (this.st.phase === 'play' && !this.scene && !this.director.running) {
+      for (const sc of this.ch.scenes) {
+        if (this.st.flags[`scene:${sc.id}`] && !this.playedScenes.has(sc.id)) {
+          this.playedScenes.add(sc.id);
+          this.startScene('event', sc.id);
+          break;
+        }
+      }
+    }
 
     // 이야기 / 목표
     const ctx = this.storyCtx();
-    if (!inScene && this.st.phase === 'play') {
+    if (!this.scene && this.st.phase === 'play') {
       this.updateTriggers(ctx);
+      this.updateHints(ctx);
       if (this.hud.textIdle) {
         const l = this.queue.shift();
-        if (l) this.hud.say(l);
+        if (l) {
+          // 설명은 대화창 대신 짧은 안내로
+          if (!l.who) this.hud.tip(l.text);
+          else this.hud.say(l);
+        }
       }
     }
     this.hud.setObjective(!ready ? '수면 너머의 친구를 기다리는 중' : inScene || this.st.phase !== 'play' ? '' : this.ch.objective(ctx));
 
     // 뒤집기 전환
     if (this.flip) {
-      this.flip.t = Math.min(1, this.flip.t + dt / 0.9);
+      this.flip.t = Math.min(1, this.flip.t + dt / (this.flip.dur ?? 0.9));
       const e = THREE.MathUtils.smoothstep(this.flip.t, 0, 1);
       this.sAmt = Math.cos(Math.PI * (this.flip.from > 0 ? e : 1 - e));
       if (this.flip.t >= 1) {
@@ -906,15 +1130,22 @@ export class Game {
       }
     }
 
-    // 카메라
+    // 카메라 (컷신에서는 대상·가까이·높이를 연출해요)
     const me = this.players[this.viewRole];
     let tx = me.body.x + me.face * 1.1;
-    if (this.camOverride !== null) tx = this.camOverride;
+    let rate = this.flip ? 5 : 3;
+    if (this.scene && this.camFollow !== null) {
+      tx = this.shotX(this.camFollow);
+      rate = this.camFollowRate;
+    } else if (this.camOverride !== null) tx = this.camOverride;
     else if (this.st.phase !== 'play' && this.ch.goal?.arc) {
       const a = this.ch.arcs.find((x) => x.id === this.ch.goal!.arc);
       if (a) tx = (a.x0 + a.x1) / 2;
     }
-    this.camX = this.renderer.clampCamX(this.camX + (tx - this.camX) * (1 - Math.exp(-dt * (this.flip ? 5 : 3))), this.ch);
+    this.camZoom.update(dt);
+    this.camY.update(dt);
+    this.camX = this.renderer.clampCamX(this.camX + (tx - this.camX) * (1 - Math.exp(-dt * rate)), this.ch, this.camZoom.v);
+    if (this.shakeT > 0) this.shakeT = Math.max(0, this.shakeT - dt);
 
     // 소리
     const partner = this.players[other(this.viewRole)];
@@ -929,7 +1160,9 @@ export class Game {
 
     // 연출 값
     this.clarity += (Math.max(this.clarityTarget, this.st.flash > 0 ? 0.85 : 0) - this.clarity) * Math.min(1, dt * (this.st.flash > 0 ? 10 : 2));
-    this.glow = this.scene === 'outro' || this.scene === 'epilogue' ? 0.12 + this.dawn * 0.18 : this.dawn * 0.15;
+    // 은은한 빛: 너무 밝으면 인물이 하얗게 날아가서, 새벽도 살짝만
+    this.glow = (this.scene === 'outro' || this.scene === 'epilogue' ? 0.05 + this.dawn * 0.08 : this.dawn * 0.06) + this.glowPulse * 0.35;
+    this.glowPulse = Math.max(0, this.glowPulse - dt * 0.7);
     this.flashFx = Math.max(0, this.flashFx - dt * 3.2);
     this.fade += (this.fadeTarget - this.fade) * Math.min(1, dt * this.fadeSpeed);
     this.renderFrame(dt);
@@ -982,7 +1215,9 @@ export class Game {
     const bounds = { minX: this.ch.minX, maxX: this.ch.maxX };
     for (const p of this.players) {
       if (p.remote || !p.present) continue;
-      const scripted = this.scene && p.role === this.actor ? (p as Player & { sceneTarget?: number }).sceneTarget : undefined;
+      // 사라지는 발판(반딧불·빛길) 위에서 되살아나지 않게, 돌아갈 자리를 늘 확인해요.
+      if (!supported(this.ch, p.role, this.st, p.lastSafe.x, p.lastSafe.y)) p.lastSafe = nearestSafe(this.ch, p.role, this.st, p.lastSafe.x, p.lastSafe.y);
+      const scripted = this.scene ? (p as Player & { sceneTarget?: number }).sceneTarget : undefined;
       const controlled = !this.scene && p.role === this.controlled && s.ready;
       let input = controlled ? this.input.take() : null;
       if (scripted !== undefined) {
@@ -1016,18 +1251,32 @@ export class Game {
     if (held) {
       for (const s of ch.sockets) if (s.world === r && !st.flags[s.flag] && s.accepts === heldKind && near(s.x, s.y, 1.3, 0.9)) return { kind: 'place', id: s.id, x: s.x, y: s.y + 2, label: s.label };
       for (const u of ch.uses) if (u.world === r && u.needs === heldKind && !st.flags[u.flag] && (!u.when || u.when(st)) && near(u.x, u.y, u.range ?? 1.2)) return { kind: 'use', id: u.id, x: u.x, y: u.y + 2, label: u.label };
+      for (const m of ch.magpies) {
+        if (m.world !== r || m.call !== 'give' || m.needs !== heldKind || st.magpies.includes(m.id)) continue;
+        if (near(m.x, m.y, 1.4, 1.8)) return { kind: 'magpie', id: m.id, x: m.x, y: m.y + 1.4, label: m.label ?? '건네주기' };
+      }
       const fx = this.findFixture(r, x, y, true);
       if (fx) return fx;
       const dx = x + me.face * 0.6;
-      const overWater = !solidAt(ch, r, dx, 0.2) && !(y > 0.8 && solidAt(ch, r, dx, y - 0.3));
-      return { kind: 'drop', id: held.id, x, y: y + 2.0, label: overWater ? (heldKind === 'marble' ? '물에 떨어뜨리기' : '물에 넣기') : '내려놓기' };
+      const overWater = !solidAt(ch, r, dx, 0.2, st) && !(y > 0.8 && solidAt(ch, r, dx, y - 0.3, st));
+      const crosses = !!ch.items.find((d) => d.id === held.id)?.crosses;
+      return { kind: 'drop', id: held.id, x, y: y + 2.0, label: overWater ? (crosses ? '물에 떨어뜨리기' : '물에 넣기') : '내려놓기' };
     }
+    // 가까이 있는 물건 중 제일 가까운 것
+    let pick: (typeof st.items)[number] | null = null;
     for (const it of st.items) {
       if (it.world !== r || (it.mode !== 'ground' && it.mode !== 'floating')) continue;
-      if (Math.abs(it.x - x) < 0.95 && it.y > y - 2.4 && it.y < y + 1.4) {
-        const d = ch.items.find((q) => q.id === it.id);
-        return { kind: 'pickup', id: it.id, x: it.x, y: it.y + 1.0, label: `${d?.name ?? '물건'} 들기` };
-      }
+      if (Math.abs(it.x - x) < 0.95 && it.y > y - 2.4 && it.y < y + 1.4 && (!pick || Math.abs(it.x - x) < Math.abs(pick.x - x))) pick = it;
+    }
+    if (pick) {
+      const d = ch.items.find((q) => q.id === pick!.id);
+      return { kind: 'pickup', id: pick.id, x: pick.x, y: pick.y + 1.0, label: d?.kind === 'coin' ? `${d.name} 줍기` : `${d?.name ?? '물건'} 들기` };
+    }
+    // 초롱걸이에 걸린 초롱은 다시 뗄 수 있어요.
+    for (const s of ch.sockets) {
+      if (s.world !== r || !s.removable || !st.flags[s.flag]) continue;
+      const it = st.items.find((i) => i.mode === 'placed' && i.at === s.id);
+      if (it && near(s.x, s.y, 0.9, 1.5)) return { kind: 'pickup', id: it.id, x: s.x, y: s.y + 2.6, label: s.pickLabel ?? '떼기' };
     }
     return this.findFixture(r, x, y, false);
   }
@@ -1244,10 +1493,20 @@ export class Game {
     if (this.ripples.length > 6) this.ripples.shift();
   }
 
+  /** 일어난 일에 붙는 짧은 대화. 두 사람 화면에 똑같이 나와요. */
   private say(ev: string) {
     if (this.scene) return;
-    const role = this.solo ? this.viewRole : this.myRole;
-    this.queue.push(...eventLines(ev, role, this.st));
+    this.queue.push(...eventLines(ev, this.st));
+  }
+
+  /** 진행 상태 요약 (바뀌면 '진전'으로 쳐서 힌트 시계를 되돌려요) */
+  private progressSig(st: WorldState): string {
+    const song = new Set(this.ch.songZones.map((z) => z.flag));
+    const flags = Object.keys(st.flags)
+      .filter((k) => st.flags[k] && !song.has(k))
+      .sort()
+      .join(',');
+    return `${flags}|${st.magpies.join(',')}|${st.items.map((i) => `${i.mode}${i.world}${i.holder}`).join(',')}|${st.keeps.length}`;
   }
 
   private diffEffects() {
@@ -1256,6 +1515,7 @@ export class Game {
     const stage = this.renderer.stage;
     const ch = this.ch;
     if (prev.round !== cur.round || prev.chapter !== cur.chapter) return;
+    if (this.progressSig(prev) !== this.progressSig(cur)) this.lastProgressT = this.time;
 
     for (const l of ch.lights) {
       if (!prev.flags[litFlag(l.id)] && cur.flags[litFlag(l.id)]) {
@@ -1289,7 +1549,14 @@ export class Game {
         this.say(`pickup:${it.id}:${it.holder}`);
       }
       if (p.mode === 'held' && it.mode === 'falling') this.audio.play('drop');
-      if (p.world !== it.world && p.mode !== 'held' && it.mode !== 'held') {
+      if (p.mode === 'floating' && it.mode === 'ground') {
+        const d = ch.items.find((q) => q.id === it.id);
+        if (d && Math.abs(it.x - d.x) < 0.01 && it.world === d.world) {
+          this.audio.play('pop', 0.6);
+          this.say(`respawn:${it.id}`);
+        }
+      }
+      if (p.world !== it.world && p.mode === 'falling' && it.mode !== 'held') {
         this.audio.play('transfer');
         this.addRipple(it.x, 1);
         stage.splash(p.world, it.x, true);
@@ -1306,12 +1573,28 @@ export class Game {
       }
       if (p.mode !== 'placed' && it.mode === 'placed') {
         const s = ch.sockets.find((q) => cur.flags[q.flag] && !prev.flags[q.flag]);
-        this.audio.play('place');
+        this.audio.play(s?.look === 'hook' ? 'light' : 'place');
         if (s) {
-          stage.burst(s.world, s.x, s.y + 1.2, 0xfff0c0, 40, 2.6);
-          this.say(`place:${s.id}`);
+          stage.burst(s.world, s.x, s.y + (s.look === 'hook' ? 2.1 : 1.2), 0xfff0c0, s.look === 'hook' ? 22 : 40, 2.2);
+          if (s.look === 'hook') {
+            // 초롱 아래 물 너머에 빛길이 놓여요.
+            const br = ch.bridges.find((b) => b.when(cur) && !b.when(prev));
+            if (br) {
+              setTimeout(() => this.audio.play('bridge', 0.6), 250);
+              for (const seg of br.segs) for (let x = seg.x0; x < seg.x1; x += 0.8) stage.burst(br.world, x, seg.y1, 0xfff3b0, 3, 1.2);
+            }
+            if (!this.fired.has('ev:hook')) {
+              this.fired.add('ev:hook');
+              this.say('hook:first');
+            }
+          } else if (s.look === 'fence') {
+            for (const pl of ch.pillars) if (pl.when && pl.when(cur) && !pl.when(prev)) stage.burst(pl.world, pl.x, pl.top + 0.2, 0xc9f5b9, 18, 1.6);
+            this.audio.play('grow', 0.8);
+            this.say('fence');
+          } else this.say(`place:${s.id}`);
         }
       }
+      if (p.mode === 'placed' && it.mode === 'held') this.audio.play('pickup', 0.6);
     }
     for (const u of ch.uses) {
       if (!prev.flags[u.flag] && cur.flags[u.flag]) {
@@ -1327,6 +1610,7 @@ export class Game {
     if (cur.magpies.length > prev.magpies.length) {
       this.audio.play('chirp');
       setTimeout(() => this.audio.play('bridge', 0.5), 500);
+      for (const id of cur.magpies) if (!prev.magpies.includes(id)) this.say(`magpie:${id}`);
       this.say('magpie');
     }
     for (const k of cur.keeps) {
@@ -1369,7 +1653,7 @@ export class Game {
       const p = this.players[role];
       this.audio.play('fish');
       this.renderer.stage.burst(role, p.body.x + 1, 0.3, 0xffcf7a, 20, 2);
-      this.queue.push(...eventLines('splash10', role, this.st));
+      this.queue.push(...eventLines('splash10', this.st));
       this.hud.toast('붕어가 뻐끔 인사했어요 🐟', 2.6);
       this.foundEgg('fish');
     }
@@ -1404,6 +1688,23 @@ export class Game {
       if (t.when(c)) {
         this.fired.add(key);
         this.queue.push(...t.lines(c));
+      }
+    }
+  }
+
+  /** 한동안 아무 진전이 없으면, 지금 자리에 맞는 도움말을 하나씩 */
+  private updateHints(c: StoryCtx) {
+    if (this.queue.length || !this.hud.textIdle) return;
+    const idle = this.time - this.lastProgressT;
+    for (const h of this.ch.hints) {
+      if (h.role !== 'both' && h.role !== c.role) continue;
+      const key = `${h.id}:${c.role}`;
+      if (this.hintFired.has(key) || idle < h.after) continue;
+      if (h.when(c)) {
+        this.hintFired.add(key);
+        this.queue.push(...h.lines(c));
+        this.lastProgressT = this.time;
+        break;
       }
     }
   }
@@ -1444,9 +1745,13 @@ export class Game {
       grandma: this.grandma,
       marks,
     });
+    const sh = this.shakeT > 0 ? this.shakeAmp * Math.min(1, this.shakeT * 3) : 0;
     this.renderer.render({
       sAmt: this.sAmt,
       camX: this.camX,
+      zoom: this.running ? this.camZoom.v : 1,
+      camY: this.running ? this.camY.v : 0,
+      shake: sh > 0 ? { x: (Math.random() - 0.5) * 2 * sh, y: (Math.random() - 0.5) * 2 * sh } : undefined,
       time: this.time,
       ripples: this.ripples,
       partner: { x: partner.body.x, y: partner.body.y + 0.6, world: partner.role, visible: this.running && partner.present && !partner.hidden && !this.hideChar[partnerRole] },
@@ -1482,6 +1787,9 @@ export class Game {
       state: () => this.st,
       chapter: () => this.st.chapter,
       scene: () => this.scene,
+      sceneName: () => (this.scene ? `${this.scene}${this.sceneId ? ':' + this.sceneId : ''}` : null),
+      cam: () => ({ zoom: this.camZoom.v, y: this.camY.v, sAmt: this.sAmt, follow: this.camFollow }),
+      idle: () => this.time - this.lastProgressT,
       players: () => this.players.map((p) => ({ role: p.role, x: p.body.x, y: p.body.y, gk: p.body.gk, gid: p.body.gid, hidden: p.hidden, present: p.present, singing: p.singing, sleeping: p.sleeping })),
       teleport: (r: Role, x: number, y: number) => {
         const p = this.players[r];
