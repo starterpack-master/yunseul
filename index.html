@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <title>다음 여름에 만나</title>
+    <meta name="description" content="물속의 아이와 보낸 사흘 밤. 호수를 사이에 둔 두 소녀의 2인 협동 퍼즐 어드벤처" />
+    <meta name="theme-color" content="#ffd9e3" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="다음 여름에 만나" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/png" href="./icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <link rel="preload" href="./fonts/Galmuri11.woff2" as="font" type="font/woff2" crossorigin />
+    <style>
+      /* Galmuri (SIL OFL 1.1) — fonts/Galmuri-OFL.txt */
+      @font-face {
+        font-family: 'Galmuri11';
+        src: url('./fonts/Galmuri11.woff2') format('woff2');
+        font-weight: 400;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'Galmuri11';
+        src: url('./fonts/Galmuri11-Bold.woff2') format('woff2');
+        font-weight: 700;
+        font-display: swap;
+      }
+      html, body { margin: 0; height: 100%; background: #ffe3cf; overflow: hidden; }
+    </style>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="hud" class="hidden">
+      <div id="letterbox"><i></i><i></i></div>
+      <div id="topbar">
+        <div id="objective"><span class="star">★</span><span id="objText"></span></div>
+        <div id="status" class="pill hidden"><span id="statusText"></span><button id="btnReload" class="mini hidden">새로고침해서 다시 연결</button></div>
+        <div id="topBtns">
+          <button id="btnInvite" class="icon hidden" title="친구 초대"></button>
+          <button id="btnSwap" class="icon hidden" title="캐릭터 전환 (Tab)"></button>
+          <button id="btnMute" class="icon" title="소리"></button>
+          <button id="btnHome" class="icon" title="처음으로"></button>
+        </div>
+      </div>
+
+      <div id="marks"></div>
+      <div id="bubbles"><div id="prompt" class="prompt hidden"></div></div>
+
+      <div id="dialog" class="hidden">
+        <div class="name"></div>
+        <div class="text"></div>
+        <div class="next">▼</div>
+      </div>
+      <div id="narration" class="hidden"><p id="narrText"></p><span class="next">▼</span></div>
+      <div id="titleCard" class="hidden"><div class="no"></div><div class="tt"></div></div>
+      <div id="caption"></div>
+
+      <div id="emoteWheel" class="hidden"></div>
+
+      <div id="controls">
+        <div id="joy"><div id="joyBase"></div><div id="joyKnob"></div></div>
+        <div id="btns">
+          <button id="btnEmote" class="ctl small" aria-label="마음 전하기"></button>
+          <button id="btnAct" class="ctl mid" aria-label="동작 / 능력"><img id="actIcon" class="pi" alt="" /><span id="actLabel"></span></button>
+          <button id="btnJump" class="ctl big" aria-label="점프"></button>
+        </div>
+      </div>
+      <div id="keysHint">←→ 이동 · Space 점프 · E 살펴보기 · F 능력(리아: 사진 / 아리: 노래, 누르고 있기) · Q 메시지(1~8) · 화면 클릭: 표시 · Tab 전환</div>
+      <div id="toast"></div>
+      <div id="flashFx"></div>
+
+      <div id="keepPop" class="hidden"><img class="hidden" alt="" /><div class="kname"></div><div class="kdesc"></div></div>
+
+      <div id="diaryPage" class="modal hidden">
+        <div class="page">
+          <div class="date"></div>
+          <div class="body"></div>
+          <div class="sign">— 할머니의 일기장</div>
+        </div>
+      </div>
+
+      <div id="ending" class="modal hidden">
+        <div class="card">
+          <div class="moon"></div>
+          <h2 class="etitle"></h2>
+          <div class="esub"></div>
+          <p class="ebody"></p>
+          <div class="row">
+            <button id="btnNewSummer" class="big-btn pink">두 번째 여름 시작하기</button>
+            <button id="btnEndHome" class="big-btn lav">처음으로</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="invite" class="modal hidden">
+        <div class="card">
+          <h2>친구 초대하기</h2>
+          <p>이 링크를 친구에게 보내 주세요. 친구가 열면 수면 너머에서 만나요.</p>
+          <div class="code">코드 <b id="inviteCode"></b></div>
+          <input id="inviteLink" readonly />
+          <div class="row">
+            <button id="inviteCopy" class="big-btn pink">링크 복사</button>
+            <button id="inviteShare" class="big-btn lav">공유하기</button>
+          </div>
+          <button id="inviteClose" class="text-btn">닫기</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="lobby">
+      <div class="title-wrap" id="titleWrap">
+        <div class="title" id="titleMain">다음 여름에 만나</div>
+        <div class="title reflect" id="titleReflect" aria-hidden="true">다음 여름에 만나</div>
+        <div class="subtitle" id="subtitle">물속의 아이와 보낸 사흘 밤</div>
+      </div>
+
+      <div class="panel" id="panelMain">
+        <div id="ngBadge" class="invited hidden">🌙 <b>두 번째 여름</b> · 아리와 할머니의 속마음이 보여요</div>
+        <div id="invited" class="invited hidden">초대받은 방 <b id="invitedCode"></b></div>
+        <button id="btnJoinInvited" class="big-btn pink hidden">초대받은 방으로 들어가기</button>
+        <button id="btnResume" class="big-btn pink hidden">지난 방 이어서 하기</button>
+        <button id="btnCreate" class="big-btn pink">친구와 함께 · 방 만들기</button>
+        <div class="join-row">
+          <input id="inpCode" maxlength="6" placeholder="방 코드" autocomplete="off" autocapitalize="characters" />
+          <button id="btnJoin" class="big-btn lav">참가</button>
+        </div>
+        <div class="row2">
+          <button id="btnSolo" class="big-btn cream">혼자 하기 <small>두 사람을 번갈아 조작해요</small></button>
+          <button id="btnContinue" class="big-btn cream hidden">이어하기 <small id="continueLabel"></small></button>
+        </div>
+        <div class="row2">
+          <button id="btnWardrobe" class="big-btn cream small-btn">옷장</button>
+          <button id="btnAlbum" class="big-btn cream small-btn">추억 앨범</button>
+        </div>
+      </div>
+
+      <div class="panel hidden" id="panelRole">
+        <div class="ask">누가 될까요?</div>
+        <div class="role-row">
+          <button class="role" data-role="0"><canvas class="portrait" data-role="0"></canvas><b>리아</b><small>할머니 댁 호숫가</small></button>
+          <button class="role" data-role="1"><canvas class="portrait" data-role="1"></canvas><b>아리</b><small>물속 마을 · 달못</small></button>
+        </div>
+        <button id="btnBack" class="text-btn">뒤로</button>
+      </div>
+
+      <div class="foot">2인 협동 퍼즐 어드벤처 · v0.3 <span id="netMode"></span></div>
+    </div>
+
+    <div id="wardrobe" class="modal hidden">
+      <div class="card wide">
+        <h2>옷장</h2>
+        <div class="tabs"><button class="tab on" data-role="0">리아</button><button class="tab" data-role="1">아리</button></div>
+        <div class="wd">
+          <canvas id="wdPreview"></canvas>
+          <div class="wd-lists">
+            <div class="wd-title">옷</div><div class="wd-list" id="wdOutfit"></div>
+            <div class="wd-title">머리색</div><div class="wd-list" id="wdHair"></div>
+            <div class="wd-title">소품</div><div class="wd-list" id="wdAcc"></div>
+          </div>
+        </div>
+        <p class="hint">내가 맡은 캐릭터의 모습이 친구 화면에도 보여요.</p>
+        <button id="wdClose" class="big-btn lav">닫기</button>
+      </div>
+    </div>
+
+    <div id="album" class="modal hidden">
+      <div class="card wide">
+        <h2>추억 앨범</h2>
+        <div class="al-sum" id="alSum"></div>
+        <div class="al-grid" id="alGrid"></div>
+        <div class="wd-title" id="alDiaryTitle">할머니의 일기장</div>
+        <div class="al-diary" id="alDiary"></div>
+        <div class="wd-title">사진</div>
+        <div class="al-photos" id="alPhotos"></div>
+        <button id="alClose" class="big-btn lav">닫기</button>
+      </div>
+    </div>
+
+    <div id="rotate" class="hidden">가로 화면으로 돌리면 더 넓게 보여요</div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
