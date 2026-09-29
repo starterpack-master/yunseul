@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <title>윤슬: 물 위의 나, 물 아래의 너</title>
+    <meta name="description" content="수면을 사이에 둔 두 소녀의 2인 협동 힐링 퍼즐 어드벤처" />
+    <meta name="theme-color" content="#ffd9e3" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="윤슬" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/png" href="./icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <link rel="preload" href="./fonts/Galmuri11.woff2" as="font" type="font/woff2" crossorigin />
+    <style>
+      /* Galmuri (SIL OFL 1.1) — fonts/Galmuri-OFL.txt */
+      @font-face {
+        font-family: 'Galmuri11';
+        src: url('./fonts/Galmuri11.woff2') format('woff2');
+        font-weight: 400;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'Galmuri11';
+        src: url('./fonts/Galmuri11-Bold.woff2') format('woff2');
+        font-weight: 700;
+        font-display: swap;
+      }
+      html, body { margin: 0; height: 100%; background: #ffe3cf; overflow: hidden; }
+    </style>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="hud" class="hidden">
+      <div id="topbar">
+        <div id="objective"><span class="star">★</span><span id="objText"></span></div>
+        <div id="status" class="pill hidden"></div>
+        <div id="topBtns">
+          <button id="btnInvite" class="icon hidden" title="친구 초대"></button>
+          <button id="btnSwap" class="icon hidden" title="캐릭터 전환 (Tab)"></button>
+          <button id="btnMute" class="icon" title="소리"></button>
+          <button id="btnHome" class="icon" title="처음으로"></button>
+        </div>
+      </div>
+
+      <div id="bubbles"><div id="prompt" class="prompt hidden"></div></div>
+
+      <div id="dialog" class="hidden">
+        <div class="name"></div>
+        <div class="text"></div>
+        <div class="next">▼</div>
+      </div>
+
+      <div id="emoteWheel" class="hidden"></div>
+
+      <div id="controls">
+        <div id="joy"><div id="joyBase"></div><div id="joyKnob"></div></div>
+        <div id="btns">
+          <button id="btnEmote" class="ctl small" aria-label="마음 전하기"></button>
+          <button id="btnAct" class="ctl mid" aria-label="상호작용"><span id="actLabel"></span></button>
+          <button id="btnJump" class="ctl big" aria-label="점프"></button>
+        </div>
+      </div>
+      <div id="keysHint">←→ 이동 · Space 점프 · E 살펴보기 · Q 마음 전하기(1~8) · Tab 전환</div>
+      <div id="toast"></div>
+
+      <div id="ending" class="modal hidden">
+        <div class="card">
+          <div class="moon"></div>
+          <h2 class="etitle"></h2>
+          <p class="ebody"></p>
+          <div class="row">
+            <button id="btnReplay" class="big-btn pink">다시 하기</button>
+            <button id="btnEndHome" class="big-btn lav">처음으로</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="invite" class="modal hidden">
+        <div class="card">
+          <h2>친구 초대하기</h2>
+          <p>이 링크를 친구에게 보내 주세요. 친구가 열면 수면 너머에서 만나요.</p>
+          <div class="code">코드 <b id="inviteCode"></b></div>
+          <input id="inviteLink" readonly />
+          <div class="row">
+            <button id="inviteCopy" class="big-btn pink">링크 복사</button>
+            <button id="inviteShare" class="big-btn lav">공유하기</button>
+          </div>
+          <button id="inviteClose" class="text-btn">닫기</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="lobby">
+      <div class="title-wrap">
+        <div class="title">윤슬</div>
+        <div class="title reflect" aria-hidden="true">윤슬</div>
+        <div class="subtitle">물 위의 나, 물 아래의 너</div>
+      </div>
+
+      <div class="panel" id="panelMain">
+        <div id="invited" class="invited hidden">초대받은 방 <b id="invitedCode"></b></div>
+        <button id="btnJoinInvited" class="big-btn pink hidden">초대받은 방으로 들어가기</button>
+        <button id="btnResume" class="big-btn pink hidden">지난 방 이어서 하기</button>
+        <button id="btnCreate" class="big-btn pink">친구와 함께 · 방 만들기</button>
+        <div class="join-row">
+          <input id="inpCode" maxlength="6" placeholder="방 코드" autocomplete="off" autocapitalize="characters" />
+          <button id="btnJoin" class="big-btn lav">참가</button>
+        </div>
+        <button id="btnSolo" class="big-btn cream">혼자 둘러보기 <small>두 캐릭터를 번갈아 조작해요</small></button>
+      </div>
+
+      <div class="panel hidden" id="panelRole">
+        <div class="ask">누가 될까요?</div>
+        <div class="role-row">
+          <button class="role" data-role="0"><canvas class="portrait" data-role="0"></canvas><b>리아</b><small>물 위 · 노을 마을</small></button>
+          <button class="role" data-role="1"><canvas class="portrait" data-role="1"></canvas><b>아리</b><small>물 아래 · 별빛 마을</small></button>
+        </div>
+        <button id="btnBack" class="text-btn">뒤로</button>
+      </div>
+
+      <div class="foot">2인 협동 힐링 퍼즐 · 프로토타입 v0.1 <span id="netMode"></span></div>
+    </div>
+
+    <div id="rotate" class="hidden">가로 화면으로 돌리면 더 넓게 보여요</div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
