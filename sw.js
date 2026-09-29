@@ -1,6 +1,6 @@
 /* 윤슬 서비스 워커 — 빌드할 때 vite.config.ts 플러그인이 사전 캐시 목록과 버전을 채워요. */
-const CACHE = 'yunseul-mumvou40';
-const PRECACHE = ["./","./assets/index-DIPtXrGT.js","./assets/dist-CaFpPFkC.js","./assets/index-C1jVCrG1.css","./index.html","./manifest.webmanifest","./icons/icon-192.png","./icons/icon-512.png","./icons/maskable-512.png","./icons/apple-touch-icon.png","./fonts/Galmuri11.woff2","./fonts/Galmuri11-Bold.woff2"];
+const CACHE = 'yunseul-mun0xcqc';
+const PRECACHE = ["./","./assets/index-DxK2cjMl.js","./assets/dist-CaFpPFkC.js","./assets/index-B6iRYH-7.css","./index.html","./manifest.webmanifest","./icons/icon-192.png","./icons/icon-512.png","./icons/maskable-512.png","./icons/apple-touch-icon.png","./fonts/Galmuri11.woff2","./fonts/Galmuri11-Bold.woff2"];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
