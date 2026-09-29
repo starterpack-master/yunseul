@@ -17,14 +17,22 @@ export type Sfx =
   | 'light'
   | 'bridge'
   | 'buoy'
-  | 'shell'
-  | 'wrong'
-  | 'solve'
-  | 'altar'
+  | 'place'
   | 'ending'
   | 'emote'
   | 'ui'
-  | 'swap';
+  | 'swap'
+  | 'shutter'
+  | 'ping'
+  | 'dig'
+  | 'chirp'
+  | 'chime'
+  | 'radio'
+  | 'page'
+  | 'keep'
+  | 'fish'
+  | 'grow'
+  | 'type';
 
 const BPM = 76;
 const EIGHTH = 60 / BPM / 2;
@@ -53,6 +61,14 @@ export class AudioEngine {
   private melodyIdx = [6, 9];
   private muted = false;
   private endingBoost = 0;
+  private humGain: GainNode | null = null;
+  private humUntil = 0;
+  private humStep = 0;
+  private humNext = 0;
+  humVol = 0;
+  private amb: { cicada: GainNode; night: GainNode } | null = null;
+  ambRole: Role = 0;
+  ambTimer = 0;
 
   get started() {
     return !!this.ctx;
@@ -102,6 +118,11 @@ export class AudioEngine {
     padLp.frequency.value = 1100;
     this.padBus.connect(padLp).connect(this.music);
 
+    this.humGain = ctx.createGain();
+    this.humGain.gain.value = 0;
+    this.humGain.connect(this.master);
+    this.humGain.connect(this.reverbSend);
+    this.startAmbience();
     this.nextTime = ctx.currentTime + 0.2;
     window.setInterval(() => this.schedule(), 30);
     document.addEventListener('visibilitychange', () => {
@@ -234,6 +255,7 @@ export class AudioEngine {
   private schedule() {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running') return;
+    this.scheduleHum();
     while (this.nextTime < ctx.currentTime + 0.15) {
       this.playStep(this.step, this.nextTime);
       this.step++;
@@ -281,6 +303,183 @@ export class AudioEngine {
 
   // ---------------------------------------------------------------------------
   // 효과음
+
+  // ---------------------------------------------------------------------------
+  // 자장가 (아리의 노래 = 할머니의 흥얼거림)
+
+  /** 자장가 선율 (F장조 5음계). 두 마디씩 BGM 화음과 어울려요. */
+  private static LULLABY = [72, 69, 72, 74, 72, 69, 67, -1, 69, 72, 74, 77, 76, 74, 72, -1, 72, 74, 76, 74, 72, 69, 67, 69, 65, -1, 67, 69, 72, -1, -1, -1];
+
+  /** 노래 부르기: sec초 동안 (계속 누르고 있으면 계속 불러요). vol은 거리에 따라 */
+  hum(sec: number, vol = 1) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    if (now > this.humUntil) {
+      this.humStep = 0;
+      this.humNext = now + 0.05;
+    }
+    this.humUntil = Math.max(this.humUntil, now + sec);
+    this.humVol = vol;
+    this.humGain?.gain.setTargetAtTime(0.9 * vol, now, 0.08);
+  }
+
+  private scheduleHum() {
+    const ctx = this.ctx!;
+    if (!this.humGain) return;
+    if (ctx.currentTime > this.humUntil) {
+      this.humGain.gain.setTargetAtTime(0, ctx.currentTime, 0.25);
+      return;
+    }
+    const beat = 60 / BPM / 2;
+    while (this.humNext < ctx.currentTime + 0.15) {
+      const n = AudioEngine.LULLABY[this.humStep % AudioEngine.LULLABY.length];
+      if (n > 0) this.voice(midi(n), this.humNext, beat * 1.9);
+      this.humStep++;
+      this.humNext += beat;
+    }
+  }
+
+  /** 부드러운 허밍 목소리 */
+  private voice(freq: number, when: number, dur: number) {
+    const ctx = this.ctx!;
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = freq;
+    const vib = ctx.createOscillator();
+    vib.frequency.value = 5.2;
+    const vg = ctx.createGain();
+    vg.gain.value = freq * 0.006;
+    vib.connect(vg).connect(o.frequency);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 1500;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, when);
+    g.gain.linearRampToValueAtTime(0.07, when + 0.08);
+    g.gain.setValueAtTime(0.07, when + dur * 0.6);
+    g.gain.linearRampToValueAtTime(0, when + dur);
+    o.connect(lp).connect(g).connect(this.humGain!);
+    o.start(when);
+    vib.start(when);
+    o.stop(when + dur + 0.05);
+    vib.stop(when + dur + 0.05);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 환경음: 지금은 저녁 매미와 물결, 1973년 밤은 귀뚜라미와 개구리
+
+  private startAmbience() {
+    const ctx = this.ctx!;
+    const cicada = ctx.createGain();
+    const night = ctx.createGain();
+    cicada.gain.value = 0;
+    night.gain.value = 0;
+    cicada.connect(this.master);
+    night.connect(this.master);
+    this.amb = { cicada, night };
+    // 물결 소리 (둘 다)
+    const len = ctx.sampleRate * 2;
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    let lp = 0;
+    for (let i = 0; i < len; i++) {
+      lp = lp * 0.97 + (Math.random() * 2 - 1) * 0.03;
+      d[i] = lp;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    const wg = ctx.createGain();
+    wg.gain.value = 0.35;
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 0.12;
+    const lg = ctx.createGain();
+    lg.gain.value = 0.2;
+    lfo.connect(lg).connect(wg.gain);
+    src.connect(wg).connect(this.master);
+    src.start();
+    lfo.start();
+    this.ambTimer = window.setInterval(() => this.ambienceTick(), 180);
+  }
+
+  setAmbience(role: Role) {
+    this.ambRole = role;
+    if (!this.ctx || !this.amb) return;
+    const t = this.ctx.currentTime;
+    this.amb.cicada.gain.setTargetAtTime(role === 0 ? 1 : 0.15, t, 0.8);
+    this.amb.night.gain.setTargetAtTime(role === 1 ? 1 : 0.15, t, 0.8);
+  }
+
+  private ambienceTick() {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'running' || !this.amb) return;
+    const t = ctx.currentTime + 0.05;
+    // 쓰르라미: "쓰르람~" 떨리는 높은 소리
+    if (Math.random() < 0.09) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = 5200 + Math.random() * 900;
+      const am = ctx.createOscillator();
+      am.frequency.value = 22 + Math.random() * 8;
+      const amg = ctx.createGain();
+      amg.gain.value = 0.5;
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 5600;
+      bp.Q.value = 3;
+      am.connect(amg).connect(g.gain);
+      const dur = 1.6 + Math.random() * 1.6;
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0, t);
+      env.gain.linearRampToValueAtTime(0.012, t + 0.4);
+      env.gain.setValueAtTime(0.012, t + dur - 0.5);
+      env.gain.linearRampToValueAtTime(0, t + dur);
+      o.connect(bp).connect(g).connect(env).connect(this.amb.cicada);
+      o.start(t);
+      am.start(t);
+      o.stop(t + dur);
+      am.stop(t + dur);
+    }
+    // 귀뚜라미: 귀뚤귀뚤 (세 번씩)
+    if (Math.random() < 0.28) {
+      const f = 4300 + Math.random() * 500;
+      for (let i = 0; i < 3; i++) {
+        const o = ctx.createOscillator();
+        o.type = 'sine';
+        o.frequency.value = f;
+        const g = ctx.createGain();
+        const w = t + i * 0.07;
+        g.gain.setValueAtTime(0, w);
+        g.gain.linearRampToValueAtTime(0.02, w + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0005, w + 0.05);
+        o.connect(g).connect(this.amb.night);
+        o.start(w);
+        o.stop(w + 0.06);
+      }
+    }
+    // 개구리: 개굴
+    if (Math.random() < 0.05) {
+      for (let i = 0; i < 2; i++) {
+        const o = ctx.createOscillator();
+        o.type = 'square';
+        o.frequency.setValueAtTime(190 + Math.random() * 40, t + i * 0.16);
+        o.frequency.exponentialRampToValueAtTime(130, t + i * 0.16 + 0.12);
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 700;
+        const g = ctx.createGain();
+        const w = t + i * 0.16;
+        g.gain.setValueAtTime(0, w);
+        g.gain.linearRampToValueAtTime(0.03, w + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0005, w + 0.13);
+        o.connect(lp).connect(g).connect(this.amb.night);
+        o.start(w);
+        o.stop(w + 0.14);
+      }
+    }
+  }
 
   private tone(type: OscillatorType, f0: number, f1: number, dur: number, vol: number, when = 0) {
     const ctx = this.ctx!;
@@ -365,19 +564,7 @@ export class AudioEngine {
         this.tone('sine', 140, 90, 0.4, 0.07 * vol);
         this.noise(0.3, 0.03 * vol, 600, 200, 1.2);
         break;
-      case 'shell':
-        this.noise(0.05, 0.08 * vol, 2400, 1800, 2);
-        this.chime([88], 0, 0.5 * vol, true);
-        break;
-      case 'wrong':
-        this.tone('sine', 700, 500, 0.08, 0.06 * vol);
-        this.tone('sine', 560, 380, 0.08, 0.06 * vol, 0.1);
-        this.tone('sine', 420, 260, 0.12, 0.06 * vol, 0.2);
-        break;
-      case 'solve':
-        this.chime([77, 81, 84, 88, 89, 93], 0.08, 0.6 * vol, true);
-        break;
-      case 'altar':
+      case 'place':
         this.chime([65, 72, 77, 81, 84], 0.12, 0.7 * vol, true);
         break;
       case 'ending':
@@ -389,9 +576,48 @@ export class AudioEngine {
       case 'ui':
         this.tone('triangle', 880, 990, 0.05, 0.04 * vol);
         break;
+      case 'type':
+        this.tone('triangle', 1200 + Math.random() * 200, 1100, 0.025, 0.012 * vol);
+        break;
       case 'swap':
         this.tone('sine', 300, 900, 0.35, 0.06 * vol);
         this.tone('sine', 900, 300, 0.35, 0.05 * vol, 0.25);
+        break;
+      case 'shutter':
+        this.noise(0.04, 0.12 * vol, 4000, 2500, 0.9);
+        this.noise(0.06, 0.08 * vol, 3000, 1800, 0.9, 0.09);
+        this.chime([96], 0, 0.3 * vol, true);
+        break;
+      case 'ping':
+        this.chime([91, 96], 0.05, 0.35 * vol, true);
+        break;
+      case 'dig':
+        for (let i = 0; i < 3; i++) this.noise(0.12, 0.08 * vol, 900, 300, 0.8, i * 0.18);
+        break;
+      case 'chirp':
+        for (let i = 0; i < 3; i++) this.tone('sine', 2400 + i * 200, 3400, 0.06, 0.05 * vol, i * 0.09);
+        break;
+      case 'chime':
+        this.chime([91, 95, 98], 0.14, 0.6 * vol, true);
+        break;
+      case 'radio':
+        // 지지직 + 옛날 가요풍 선율 (라디오 이스터에그)
+        this.noise(0.5, 0.05 * vol, 3000, 2000, 0.5);
+        this.chime([69, 72, 74, 76, 74, 72, 69, 67, 69], 0.22, 0.45 * vol);
+        break;
+      case 'page':
+        this.noise(0.25, 0.06 * vol, 5000, 2500, 0.7);
+        break;
+      case 'keep':
+        this.chime([84, 88, 91, 96, 100], 0.07, 0.55 * vol, true);
+        break;
+      case 'fish':
+        this.tone('sine', 500, 220, 0.15, 0.08 * vol);
+        this.tone('sine', 700, 300, 0.12, 0.06 * vol, 0.18);
+        break;
+      case 'grow':
+        this.tone('sine', 220, 660, 0.9, 0.05 * vol);
+        this.chime([72, 79, 84, 88], 0.12, 0.45 * vol);
         break;
     }
   }

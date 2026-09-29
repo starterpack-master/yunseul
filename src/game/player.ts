@@ -1,9 +1,10 @@
-import { SPAWN } from './level';
-import { makeBody, makeController, stepBody, type Body, type Controller, type MoveInput, type StepResult } from './physics';
+import { makeBody, makeController, stepBody, type Body, type Bounds, type Controller, type MoveInput, type StepResult } from './physics';
 import type { AnimName, PlayerNetState, Role } from './types';
-import type { Collider } from './world';
+import type { ArcShape, Collider } from './world';
 
 const NO_INPUT: MoveInput = { move: 0, jumpPressed: false, jumpHeld: false };
+/** 이만큼 가만히 있으면 꾸벅꾸벅 졸아요 (이스터에그) */
+const SLEEP_AFTER = 20;
 
 export class Player {
   readonly role: Role;
@@ -15,34 +16,36 @@ export class Player {
   lastSafe: { x: number; y: number };
   hidden = false;
   respawnT = 0;
-  /** 착지 찌그러짐 연출 (0~1) */
   squash = 0;
-  /** 원격 플레이어라면 네트워크 상태를 보간해서 따라가요. */
   remote = false;
   present = true;
+  idleT = 0;
+  sleeping = false;
+  singing = false;
+  /** 사진 찍는 동작(초) */
+  actT = 0;
   private target: PlayerNetState | null = null;
   private targetAge = 0;
 
-  constructor(role: Role) {
+  constructor(role: Role, x = 0, y = 1.5) {
     this.role = role;
-    const s = SPAWN[role];
-    this.body = makeBody(s.x, s.y);
-    this.lastSafe = { ...s };
+    this.body = makeBody(x, y);
+    this.lastSafe = { x, y };
   }
 
-  reset() {
-    const s = SPAWN[this.role];
-    this.body = makeBody(s.x, s.y);
+  place(x: number, y: number, face: 1 | -1 = 1) {
+    this.body = makeBody(x, y);
     this.ctl = makeController();
-    this.lastSafe = { ...s };
+    this.lastSafe = { x, y };
     this.hidden = false;
     this.respawnT = 0;
-    this.face = 1;
+    this.face = face;
     this.target = null;
+    this.idleT = 0;
+    this.sleeping = false;
   }
 
-  /** 로컬 물리 스텝. 물에 빠지면 잠깐 숨었다가 안전 지점에서 "퐁" 하고 나타나요. */
-  step(dt: number, input: MoveInput | null, colliders: Collider[], useArc: boolean): StepResult | null {
+  step(dt: number, input: MoveInput | null, colliders: Collider[], arcs: ArcShape[], bounds: Bounds): StepResult | null {
     if (this.hidden) {
       this.respawnT -= dt;
       if (this.respawnT <= 0) {
@@ -55,30 +58,41 @@ export class Player {
       return null;
     }
     const inp = input ?? NO_INPUT;
-    const r = stepBody(this.body, this.ctl, inp, dt, colliders, useArc);
+    const r = stepBody(this.body, this.ctl, inp, dt, colliders, arcs, bounds);
     if (inp.move > 0.1) this.face = 1;
     else if (inp.move < -0.1) this.face = -1;
     if (r.landed) this.squash = 1;
-    if (this.body.grounded && this.body.centered && (this.body.gk === 'solid' || this.body.gk === 'bridge')) {
+    if (this.body.grounded && this.body.centered && (this.body.gk === 'solid' || this.body.gk === 'bridge') && !this.body.gid.startsWith('stone:')) {
       this.lastSafe = { x: this.body.x, y: this.body.y };
     }
     if (r.splashed) {
       this.hidden = true;
       this.respawnT = 0.75;
     }
+    const busy = Math.abs(inp.move) > 0.05 || inp.jumpPressed || !this.body.grounded || this.singing || this.actT > 0;
+    this.idleT = busy ? 0 : this.idleT + dt;
+    this.sleeping = this.idleT > SLEEP_AFTER;
+    if (this.actT > 0) this.actT = Math.max(0, this.actT - dt);
     this.updateAnim(dt);
     return r;
   }
 
-  /** 부표처럼 움직이는 발판 위에 서 있으면 같이 움직여요. */
   carry(dy: number) {
     this.body.y += dy;
+  }
+
+  /** 컷신에서 조용히 서 있게 */
+  settle(dt: number) {
+    this.body.vx = 0;
+    this.updateAnim(dt);
   }
 
   private updateAnim(dt: number) {
     const b = this.body;
     let next: AnimName;
     if (!b.grounded) next = b.vy > 0.5 ? 'jump' : 'fall';
+    else if (this.sleeping) next = 'sit';
+    else if (this.actT > 0) next = 'act';
     else next = Math.abs(b.vx) > 0.4 ? 'walk' : 'idle';
     if (next !== this.anim) {
       this.anim = next;
@@ -102,16 +116,19 @@ export class Player {
       g: this.hidden ? 'none' : b.gk,
       gid: b.gid,
       hidden: this.hidden,
+      sleep: this.sleeping || undefined,
+      sing: this.singing || undefined,
     };
   }
 
-  /** 상대에게서 받은 최신 상태 */
   receive(s: PlayerNetState) {
     const wasHidden = this.hidden;
     this.target = s;
     this.targetAge = 0;
     this.face = s.f;
     this.hidden = s.hidden;
+    this.sleeping = !!s.sleep;
+    this.singing = !!s.sing;
     this.body.gk = s.g;
     this.body.gid = s.gid;
     this.body.grounded = s.g !== 'none';
@@ -124,7 +141,6 @@ export class Player {
     }
   }
 
-  /** 원격 플레이어 보간 */
   smoothRemote(dt: number) {
     const t = this.target;
     if (!t) return;

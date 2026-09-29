@@ -434,7 +434,7 @@ button.icon:active {
 
 #toast {
   position: absolute;
-  top: calc(58px + var(--safe-t));
+  top: calc(92px + var(--safe-t));
   left: 50%;
   transform: translate(-50%, -8px);
   opacity: 0;
@@ -570,10 +570,12 @@ button.icon:active {
 .title-wrap {
   position: relative;
   text-align: center;
-  height: 150px;
+  height: 132px;
+  cursor: pointer;
 }
 .title {
-  font-size: 88px;
+  font-size: 54px;
+  white-space: nowrap;
   font-weight: 700;
   line-height: 1;
   color: #fff;
@@ -593,7 +595,7 @@ button.icon:active {
   position: absolute;
   left: 0;
   right: 0;
-  top: 94px;
+  top: 62px;
   transform: scaleY(-0.55);
   transform-origin: top;
   opacity: 0.35;
@@ -609,7 +611,7 @@ button.icon:active {
 .subtitle {
   position: absolute;
   left: 50%;
-  top: 118px;
+  top: 100px;
   transform: translateX(-50%);
   white-space: nowrap;
   font-size: 17px;
@@ -723,17 +725,17 @@ button.icon:active {
 
 @media (max-height: 460px) {
   .title-wrap {
-    height: 104px;
+    height: 96px;
   }
   .title {
-    font-size: 60px;
+    font-size: 36px;
   }
   .title.reflect {
-    top: 66px;
+    top: 42px;
   }
   .subtitle {
-    top: 78px;
-    font-size: 14px;
+    top: 70px;
+    font-size: 13px;
   }
   #lobby {
     gap: 10px;
@@ -775,4 +777,439 @@ button.icon:active {
   #objective {
     max-width: 52vw;
   }
+}
+
+/* ================================================================ v0.2 */
+
+/* 제목 물그림자: 엔딩 뒤에는 또렷하게 다른 말이 보여요 */
+.title.reflect.revealed {
+  opacity: 0.8;
+  filter: none;
+  transform: scaleY(-0.62);
+  color: #fff6c8;
+  text-shadow: 0 0 10px rgba(255, 240, 190, 0.9), 2px 2px 0 var(--lav-d), -2px -2px 0 var(--lav-d), 2px -2px 0 var(--lav-d), -2px 2px 0 var(--lav-d);
+  font-size: 36px;
+  top: 72px;
+  animation: none;
+}
+.title.reflect.peek {
+  opacity: 0.55;
+  filter: blur(0.6px) hue-rotate(40deg);
+}
+
+.row2 {
+  display: flex;
+  gap: 10px;
+}
+.row2 > * {
+  flex: 1;
+}
+.big-btn.small-btn {
+  padding: 8px 10px 9px;
+  font-size: 13px;
+}
+
+/* 컷신: 위아래 검은 띠, 조작 버튼 숨김 */
+#letterbox i {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  background: rgba(40, 26, 56, 0.9);
+  transition: height 0.5s ease;
+  z-index: 1;
+}
+#letterbox i:first-child {
+  top: 0;
+}
+#letterbox i:last-child {
+  bottom: 0;
+}
+#hud.scene #letterbox i {
+  height: 7vh;
+}
+#hud.scene #controls,
+#hud.scene #keysHint,
+#hud.scene #objective {
+  opacity: 0;
+  pointer-events: none;
+}
+#hud.scene #dialog {
+  bottom: calc(9vh + var(--safe-b));
+}
+
+#status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#status .mini {
+  pointer-events: auto;
+  font-size: 11px;
+  padding: 3px 8px;
+  background: #fff;
+  border-radius: 99px;
+  box-shadow: 0 0 0 2px var(--ink);
+}
+
+#dialog.think {
+  background: rgba(245, 240, 255, 0.95);
+  font-style: italic;
+  color: #6f5a88;
+}
+#dialog.grandma .name {
+  background: #b8a0d8;
+}
+#dialog.ari .name {
+  background: #8f7fe0;
+}
+
+#narration {
+  pointer-events: auto;
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(ellipse at center, rgba(40, 26, 56, 0.55), rgba(40, 26, 56, 0.78));
+  z-index: 2;
+}
+#narration p {
+  max-width: min(640px, 82vw);
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.9;
+  color: #fff8f0;
+  text-align: center;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+}
+#narration .next {
+  position: absolute;
+  bottom: calc(12vh + var(--safe-b));
+  color: #fff;
+  opacity: 0.6;
+  animation: bob 1s ease-in-out infinite;
+}
+
+#titleCard {
+  pointer-events: auto;
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  z-index: 2;
+  animation: cardIn 1.2s ease-out;
+  transition: opacity 0.6s;
+}
+#titleCard.out {
+  opacity: 0;
+}
+#titleCard .no {
+  font-size: 14px;
+  letter-spacing: 4px;
+  color: #fff;
+  text-shadow: 0 0 8px rgba(90, 58, 87, 0.8);
+}
+#titleCard .tt {
+  margin-top: 6px;
+  font-size: 34px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 3px 0 0 var(--ink), -3px 0 0 var(--ink), 0 3px 0 var(--ink), 0 -3px 0 var(--ink), 0 7px 0 var(--pink-d);
+}
+@keyframes cardIn {
+  0% {
+    opacity: 0;
+    letter-spacing: 12px;
+  }
+  100% {
+    opacity: 1;
+    letter-spacing: 0;
+  }
+}
+
+/* 핑 */
+#marks {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.mark {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+}
+.mark i {
+  position: absolute;
+  left: -18px;
+  top: -9px;
+  width: 36px;
+  height: 18px;
+  border-radius: 50%;
+  border: 3px solid #ffd6e2;
+  box-shadow: 0 0 10px 2px rgba(255, 214, 226, 0.9);
+  animation: ringPulse 1.1s ease-out infinite;
+}
+.mark b {
+  position: absolute;
+  left: -5px;
+  top: -30px;
+  width: 10px;
+  height: 14px;
+  background: #ffd6e2;
+  clip-path: polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%);
+  box-shadow: 0 0 8px 2px rgba(255, 214, 226, 0.9);
+  animation: bob 0.9s ease-in-out infinite;
+}
+.mark.theirs i {
+  border-color: #d9ccff;
+  box-shadow: 0 0 10px 2px rgba(217, 204, 255, 0.95);
+}
+.mark.theirs b {
+  background: #d9ccff;
+}
+@keyframes ringPulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0.2;
+  }
+}
+
+/* 동작 / 능력 버튼 */
+.ctl.mid img.pi {
+  width: 26px;
+  height: 26px;
+}
+#actLabel:empty {
+  display: none;
+}
+@media (hover: hover) {
+  #actLabel {
+    display: none;
+  }
+}
+
+#flashFx {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+}
+#flashFx.go {
+  animation: flashGo 0.45s ease-out;
+}
+@keyframes flashGo {
+  0% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+#keepPop {
+  position: absolute;
+  right: calc(12px + var(--safe-r));
+  top: calc(56px + var(--safe-t));
+  width: min(300px, 70vw);
+  padding: 10px 12px 12px;
+  background: rgba(255, 250, 240, 0.96);
+  box-shadow: 0 0 0 2px var(--ink), 0 4px 0 2px var(--ink-soft);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+#keepPop.show {
+  animation: pop 0.4s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+#keepPop img {
+  width: 100%;
+  border-radius: 4px;
+  margin-bottom: 6px;
+  image-rendering: pixelated;
+  box-shadow: 0 0 0 2px var(--ink);
+}
+#keepPop .kname {
+  font-weight: 700;
+  color: var(--pink-d);
+  margin-bottom: 2px;
+}
+
+#diaryPage .page {
+  width: min(420px, 86vw);
+  padding: 22px 24px 18px;
+  background: repeating-linear-gradient(#fffbe8, #fffbe8 25px, #efe4ff 26px);
+  box-shadow: 0 0 0 3px var(--ink), 0 6px 0 3px var(--ink-soft);
+  border-radius: 4px 10px 10px 4px;
+  border-left: 10px solid #ffcfd8;
+  font-size: 15px;
+  line-height: 26px;
+  animation: pop 0.4s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+#diaryPage .date {
+  font-weight: 700;
+  color: var(--lav-d);
+}
+#diaryPage .sign {
+  margin-top: 12px;
+  text-align: right;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+#ending .esub {
+  margin: -2px 0 10px;
+  font-size: 14px;
+  color: var(--lav-d);
+  text-shadow: 0 0 8px rgba(184, 169, 255, 0.8);
+  animation: breathe 3s ease-in-out infinite;
+}
+
+/* 옷장 · 앨범 */
+.modal {
+  z-index: 10;
+}
+body > .modal {
+  pointer-events: auto;
+  position: fixed;
+}
+.card.wide {
+  width: min(640px, 94vw);
+  max-height: 88vh;
+  overflow-y: auto;
+}
+.tabs {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+.tab {
+  padding: 6px 16px;
+  border-radius: 99px;
+  background: #fff;
+  box-shadow: 0 0 0 2px var(--ink);
+  font-size: 14px;
+}
+.tab.on {
+  background: var(--pink-l);
+}
+.wd {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  text-align: left;
+}
+#wdPreview {
+  width: 112px;
+  height: 140px;
+  image-rendering: pixelated;
+  background: radial-gradient(circle at 50% 70%, #ffe8f0, #e9e5ff);
+  border-radius: 8px;
+  box-shadow: 0 0 0 2px var(--ink);
+  flex-shrink: 0;
+}
+.wd-lists {
+  flex: 1;
+}
+.wd-title {
+  margin: 8px 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--lav-d);
+  text-align: left;
+}
+.wd-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.wd-opt {
+  padding: 5px 10px;
+  font-size: 12px;
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 0 0 2px var(--ink);
+}
+.wd-opt.on {
+  background: var(--pink-l);
+  font-weight: 700;
+}
+.wd-opt.locked {
+  opacity: 0.55;
+}
+.hint {
+  font-size: 11px !important;
+  opacity: 0.7;
+  margin: 10px 0 !important;
+}
+.al-sum {
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+.al-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+  text-align: left;
+}
+.al-cell {
+  padding: 8px;
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 0 0 2px var(--ink);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.al-cell img {
+  width: 100%;
+  border-radius: 3px;
+}
+.al-cell b {
+  display: block;
+  font-size: 12px;
+  margin: 2px 0;
+}
+.al-cell.locked {
+  opacity: 0.5;
+}
+.al-icon {
+  font-size: 22px;
+}
+.al-diary {
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.al-page {
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  background: #fffbe8;
+  border-left: 5px solid #ffcfd8;
+  border-radius: 3px;
+}
+.al-page.locked {
+  opacity: 0.5;
+}
+.al-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.al-photos img {
+  width: 128px;
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px var(--ink);
+}
+#album .big-btn,
+#wardrobe .big-btn {
+  margin: 12px auto 0;
 }

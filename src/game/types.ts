@@ -1,4 +1,4 @@
-/** 0 = 물 위(리아, 노을 마을), 1 = 물 아래(아리, 별그림자 마을) */
+/** 0 = 현재(리아, 은하호), 1 = 1973년(아리, 달못 마을) */
 export type WorldId = 0 | 1;
 export type Role = WorldId;
 
@@ -11,14 +11,9 @@ export interface Rect {
   y1: number;
 }
 
-export type Sym = 'moon' | 'star' | 'flower';
-export const SYMS: Sym[] = ['moon', 'star', 'flower'];
-export const SYM_EMOJI: Record<Sym, string> = { moon: '🌙', star: '⭐', flower: '🌸' };
-export const SYM_NAME: Record<Sym, string> = { moon: '달', star: '별', flower: '꽃' };
+export type AnimName = 'idle' | 'walk' | 'jump' | 'fall' | 'sit' | 'act';
 
-export type AnimName = 'idle' | 'walk' | 'jump' | 'fall';
-
-/** 무엇 위에 서 있는지 (부표 운반, 안전 지점 기록, 엔딩 판정에 사용) */
+/** 무엇 위에 서 있는지 (부표 운반, 안전 지점, 목표 판정에 사용) */
 export type GroundKind = 'none' | 'solid' | 'bridge' | 'buoy' | 'arc';
 
 export interface PlayerNetState {
@@ -32,20 +27,34 @@ export interface PlayerNetState {
   g: GroundKind;
   gid: string;
   hidden: boolean;
+  /** 조는 중 / 노래 중 / 사진 찍는 중 */
+  sleep?: boolean;
+  sing?: boolean;
 }
 
-export type EmoteKind = 'hi' | 'heart' | 'here' | 'what' | 'wait' | 'moon' | 'star' | 'flower';
+/** 자주 쓰는 퀵 메시지. 퍼즐 전용 메시지는 없고, 위치는 핑으로 알려요. */
+export type EmoteKind = 'hi' | 'thanks' | 'ok' | 'nice' | 'wait' | 'come' | 'stand' | 'help';
 
-export const EMOTES: { kind: EmoteKind; icon: string; label: string }[] = [
-  { kind: 'hi', icon: '👋', label: '안녕' },
-  { kind: 'heart', icon: '💗', label: '고마워' },
-  { kind: 'here', icon: '❗', label: '여기!' },
-  { kind: 'what', icon: '❓', label: '뭐지?' },
-  { kind: 'wait', icon: '⏳', label: '기다려' },
-  { kind: 'moon', icon: '🌙', label: '달' },
-  { kind: 'star', icon: '⭐', label: '별' },
-  { kind: 'flower', icon: '🌸', label: '꽃' },
+export const EMOTES: { kind: EmoteKind; label: string }[] = [
+  { kind: 'hi', label: '안녕!' },
+  { kind: 'thanks', label: '고마워' },
+  { kind: 'ok', label: '좋아' },
+  { kind: 'nice', label: '잘했어!' },
+  { kind: 'wait', label: '기다려' },
+  { kind: 'come', label: '이리 와' },
+  { kind: 'stand', label: '올라서 줘' },
+  { kind: 'help', label: '어떡하지?' },
 ];
 
 export const ROLE_NAME: Record<Role, string> = { 0: '리아', 1: '아리' };
-export const WORLD_NAME: Record<WorldId, string> = { 0: '물 위', 1: '물 아래' };
+export const WORLD_NAME: Record<WorldId, string> = { 0: '지금의 호수', 1: '1973년 달못 마을' };
+
+export type ChapterId = 'ch1' | 'ch2' | 'ch3' | 'epilogue';
+export const CHAPTER_ORDER: ChapterId[] = ['ch1', 'ch2', 'ch3', 'epilogue'];
+
+/** 캐릭터 꾸미기 */
+export interface Look {
+  outfit: string;
+  hair: string;
+  acc: string;
+}

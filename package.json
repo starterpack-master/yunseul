@@ -1,6 +1,6 @@
 {
   "name": "yunseul",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "윤슬: 물 위의 나, 물 아래의 너 - 2인 협동 힐링 퍼즐 어드벤처 프로토타입",
   "type": "module",

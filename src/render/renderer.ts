@@ -28,6 +28,8 @@ export interface RenderParams {
   fade: number;
   fadeColor: THREE.Color;
   glow: number;
+  /** 사진 플래시 (0~1) */
+  flash: number;
 }
 
 const PAL: Record<WorldId, { clear: number; fog: number; tintOther: [number, number, number]; sky: number; partner: number }> = {
@@ -174,10 +176,10 @@ export class Renderer {
     this.compMat.uniforms.res.value.set(this.iw, this.ih);
   }
 
-  clampCamX(x: number): number {
-    const lo = this.halfW - 0.6;
-    const hi = 64.6 - this.halfW;
-    if (lo > hi) return 32;
+  clampCamX(x: number, bounds: { minX: number; maxX: number }): number {
+    const lo = bounds.minX - 1 + this.halfW;
+    const hi = bounds.maxX + 1 - this.halfW;
+    if (lo > hi) return (bounds.minX + bounds.maxX) / 2;
     return Math.min(hi, Math.max(lo, x));
   }
 
@@ -211,12 +213,14 @@ export class Renderer {
 
     const gl = this.gl;
     // 1) 내 세계
+    this.stage.prePass(role, role);
     this.camera.layers.set(WORLD_LAYER[role]);
     this.scene.fog = this.fogs[role];
     gl.setClearColor(PAL[role].clear, 1);
     gl.setRenderTarget(this.rtOwn);
     gl.render(this.scene, this.camera);
     // 2) 수면 너머 세계
+    this.stage.prePass(role, oth);
     this.camera.layers.set(WORLD_LAYER[oth]);
     this.scene.fog = this.fogs[oth];
     gl.setClearColor(PAL[oth].clear, 1);
@@ -271,8 +275,8 @@ export class Renderer {
     f.sAmt.value = p.sAmt;
     f.fade.value = p.fade;
     f.fadeColor.value.copy(p.fadeColor);
-    f.glow.value = p.glow;
-    f.bloomAmt.value = 0.55 + p.glow * 0.8;
+    f.glow.value = p.glow + p.flash * 0.9;
+    f.bloomAmt.value = 0.55 + p.glow * 0.8 + p.flash;
     this.pass(this.finalMat, null);
   }
 
@@ -293,5 +297,37 @@ export class Renderer {
 
   get viewCameraRole(): WorldId {
     return this.camRole;
+  }
+
+  /** 화면(CSS px) → 세계 좌표. 수면 아래를 누르면 상대 세계 자리를 돌려줘요. */
+  unproject(cssX: number, cssY: number): { world: WorldId; x: number; y: number } | null {
+    const s = Math.sign(this.curSAmt) * Math.max(Math.abs(this.curSAmt), 0.002);
+    const u = cssX / this.cssW;
+    const vScreen = 1 - cssY / this.cssH;
+    const v = this.texW + (vScreen - this.scrW) / s;
+    if (v < 0 || v > 1) return null;
+    const ndc = new THREE.Vector3(u * 2 - 1, v * 2 - 1, 0.5).unproject(this.camera);
+    const dir = ndc.sub(this.camera.position).normalize();
+    if (Math.abs(dir.z) < 1e-5) return null;
+    const t = (0.3 - this.camera.position.z) / dir.z;
+    if (t <= 0) return null;
+    const hit = this.camera.position.clone().addScaledVector(dir, t);
+    return hit.y >= 0 ? { world: 0, x: hit.x, y: hit.y } : { world: 1, x: hit.x, y: -hit.y };
+  }
+
+  /** 지금 화면을 작은 사진으로 (렌더 직후에 불러야 해요) */
+  snapshot(maxW = 320): string | null {
+    try {
+      const src = this.gl.domElement;
+      const scale = Math.min(1, maxW / src.width);
+      const c = document.createElement('canvas');
+      c.width = Math.round(src.width * scale);
+      c.height = Math.round(src.height * scale);
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(src, 0, 0, c.width, c.height);
+      return c.toDataURL('image/jpeg', 0.72);
+    } catch {
+      return null;
+    }
   }
 }

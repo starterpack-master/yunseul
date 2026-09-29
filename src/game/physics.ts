@@ -1,6 +1,5 @@
-import { LEVEL_MAX_X, LEVEL_MIN_X, arcTop } from './level';
 import type { GroundKind } from './types';
-import type { Collider } from './world';
+import type { ArcShape, Collider } from './world';
 
 export const PHYS = {
   speed: 4.3,
@@ -68,13 +67,19 @@ export function makeController(): Controller {
  * 로컬 좌표(항상 똑바로 선 기준) 플랫포머 한 스텝.
  * 두 세계 모두 같은 물리를 쓰고, 물 아래 세계는 그릴 때만 뒤집어요.
  */
+export interface Bounds {
+  minX: number;
+  maxX: number;
+}
+
 export function stepBody(
   b: Body,
   ctl: Controller,
   input: MoveInput,
   dt: number,
   colliders: Collider[],
-  useArc: boolean,
+  arcs: ArcShape[],
+  bounds: Bounds,
 ): StepResult {
   const res: StepResult = { jumped: false, landed: false, splashed: false };
   const wasGrounded = b.grounded;
@@ -115,11 +120,11 @@ export function stepBody(
     else b.x = c.x1 + b.w / 2 + 1e-4;
     b.vx = 0;
   }
-  if (b.x < LEVEL_MIN_X) {
-    b.x = LEVEL_MIN_X;
+  if (b.x < bounds.minX) {
+    b.x = bounds.minX;
     b.vx = 0;
-  } else if (b.x > LEVEL_MAX_X) {
-    b.x = LEVEL_MAX_X;
+  } else if (b.x > bounds.maxX) {
+    b.x = bounds.maxX;
     b.vx = 0;
   }
 
@@ -148,17 +153,18 @@ export function stepBody(
     }
   }
 
-  // 반달 다리 (곡면 발판)
-  if (useArc && b.vy <= 0) {
-    const t = arcTop(b.x);
-    if (t !== null) {
-      const tPrev = arcTop(prevX) ?? 0;
+  // 곡선 다리 (달맞이 다리, 오작교)
+  if (b.vy <= 0) {
+    for (const a of arcs) {
+      const t = a.top(b.x);
+      if (t === null) continue;
+      const tPrev = a.top(prevX) ?? 0;
       if (b.y <= t && prevY >= Math.min(t, tPrev) - 0.36 && (!b.grounded || t > b.y)) {
         b.y = t;
         b.vy = 0;
         b.grounded = true;
         b.gk = 'arc';
-        b.gid = 'moonBridge';
+        b.gid = a.id;
         b.centered = false;
       }
     }
